@@ -35,6 +35,45 @@ spring:
 #        dimensions: 1536
 #        distance-type: COSINE_DISTANCE
 #        max-document-batch-size: 10000 # Optional: Maximum number of documents per batch
+
+# TripMind 配置
+tripmind:
+  # 消息总线类型：memory（默认）/ redis
+  message-bus:
+    type: memory
+  
+  # 智能体配置
+  agents:
+    # 主管智能体
+    orchestrator:
+      enabled: true
+      max-steps: 15
+      timeout: 300000  # 5分钟
+    
+    # 调研智能体
+    research:
+      enabled: true
+      max-steps: 10
+      timeout: 120000  # 2分钟
+    
+    # 预算智能体
+    budget:
+      enabled: true
+      max-steps: 5
+      timeout: 60000   # 1分钟
+    
+    # 天气智能体
+    weather:
+      enabled: true
+      max-steps: 5
+      timeout: 60000
+    
+    # 行程智能体
+    itinerary:
+      enabled: true
+      max-steps: 8
+      timeout: 120000
+
 server:
   port: 8123
   servlet:
@@ -50,7 +89,7 @@ springdoc:
   group-configs:
     - group: 'default'
       paths-to-match: '/**'
-      packages-to-scan: com.yupi.yuaiagent.controller
+      packages-to-scan: com.hgh.tripmindagent.controller
 # knife4j config
 knife4j:
   enable: true
@@ -63,4 +102,5 @@ search-api:
 # 修改日志级别，查看 Spring AI 更多调用细节
 logging:
   level:
-    org.springframework.ai: DEBUG
+    com.hgh.tripmindagent: DEBUG
+    org.springframework.ai: INFO

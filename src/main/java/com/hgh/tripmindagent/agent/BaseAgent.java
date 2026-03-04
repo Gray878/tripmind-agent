@@ -1,192 +1,214 @@
 package com.hgh.tripmindagent.agent;
 
-import cn.hutool.core.util.StrUtil;
+import com.hgh.tripmindagent.agent.base.*;
 import com.hgh.tripmindagent.agent.model.AgentState;
-import lombok.Data;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * 抽象基础代理类，用于管理代理状态和执行流程。
- * <p>
- * 提供状态转换、内存管理和基于步骤的执行循环的基础功能。
- * 子类必须实现step方法。
+ * 智能体基类（生产级）
+ * 
+ * 核心特性：
+ * 1. 并发安全：使用 AtomicReference + ReentrantLock
+ * 2. 流式输出：集成 SseEmitter
+ * 3. 拦截器机制：支持日志、监控、审计等横切关注点
+ * 4. 模板方法：定义执行骨架，子类实现细节
+ * 
+ * @author TripMind Team
  */
-@Data
 @Slf4j
+@Getter
 public abstract class BaseAgent {
 
-    // 核心属性
-    private String name;
-
-    // 提示词
-    private String systemPrompt;
-    private String nextStepPrompt;
-
-    // 代理状态
-    private AgentState state = AgentState.IDLE;
-
-    // 执行步骤控制
-    private int currentStep = 0;
-    private int maxSteps = 10;
-
-    // LLM 大模型
-    private ChatClient chatClient;
-
-    // Memory 记忆（需要自主维护会话上下文）
-    private List<Message> messageList = new ArrayList<>();
+    // 核心属性（不可变）
+    private final String agentId;
+    private final AgentConfig config;
+    private final ChatClient chatClient;
+    
+    // 扩展机制
+    private final List<AgentInterceptor> interceptors = new ArrayList<>();
+    
+    // 执行状态（并发安全）
+    private final AtomicReference<AgentState> state = new AtomicReference<>(AgentState.IDLE);
+    private final ReentrantLock executionLock = new ReentrantLock();
+    
+    /**
+     * 构造函数
+     */
+    protected BaseAgent(String agentId, AgentConfig config, ChatClient chatClient) {
+        this.agentId = agentId;
+        this.config = config;
+        this.chatClient = chatClient;
+        
+        // 验证配置
+        if (config != null) {
+            config.validate();
+        }
+    }
+    
+    /**
+     * 添加拦截器
+     */
+    public void addInterceptor(AgentInterceptor interceptor) {
+        interceptors.add(interceptor);
+        // 按优先级排序
+        interceptors.sort(Comparator.comparingInt(AgentInterceptor::getOrder));
+    }
+    
+    /**
+     * 添加多个拦截器
+     */
+    public void addInterceptors(List<AgentInterceptor> interceptorList) {
+        interceptors.addAll(interceptorList);
+        // 按优先级排序
+        interceptors.sort(Comparator.comparingInt(AgentInterceptor::getOrder));
+    }
 
     /**
-     * 运行代理
-     *
-     * @param userPrompt 用户提示词
-     * @return 执行结果
+     * 同步执行
      */
-    public String run(String userPrompt) {
-        // 1、基础校验
-        if (this.state != AgentState.IDLE) {
-            throw new RuntimeException("Cannot run agent from state: " + this.state);
+    public final AgentResult run(AgentRequest request) {
+        // 尝试获取锁
+        if (!executionLock.tryLock()) {
+            return AgentResult.failure("智能体正在运行中，请稍后重试");
         }
-        if (StrUtil.isBlank(userPrompt)) {
-            throw new RuntimeException("Cannot run agent with empty user prompt");
-        }
-        // 2、执行，更改状态
-        this.state = AgentState.RUNNING;
-        // 记录消息上下文
-        messageList.add(new UserMessage(userPrompt));
-        // 保存结果列表
-        List<String> results = new ArrayList<>();
+        
         try {
-            // 执行循环
-            for (int i = 0; i < maxSteps && state != AgentState.FINISHED; i++) {
-                int stepNumber = i + 1;
-                currentStep = stepNumber;
-                log.info("Executing step {}/{}", stepNumber, maxSteps);
-                // 单步执行
-                String stepResult = step();
-                String result = "Step " + stepNumber + ": " + stepResult;
-                results.add(result);
-            }
-            // 检查是否超出步骤限制
-            if (currentStep >= maxSteps) {
-                state = AgentState.FINISHED;
-                results.add("Terminated: Reached max steps (" + maxSteps + ")");
-            }
-            return String.join("\n", results);
-        } catch (Exception e) {
-            state = AgentState.ERROR;
-            log.error("error executing agent", e);
-            return "执行错误" + e.getMessage();
+            return executeWithLifecycle(request, null);
         } finally {
-            // 3、清理资源
-            this.cleanup();
+            executionLock.unlock();
         }
     }
 
     /**
-     * 运行代理（流式输出）
-     *
-     * @param userPrompt 用户提示词
-     * @return 执行结果
+     * 流式执行（SSE）
      */
-    public SseEmitter runStream(String userPrompt) {
-        // 创建一个超时时间较长的 SseEmitter
-        SseEmitter sseEmitter = new SseEmitter(300000L); // 5 分钟超时
-        // 使用线程异步处理，避免阻塞主线程
+    public final SseEmitter runStream(AgentRequest request) {
+        SseEmitter emitter = new SseEmitter(config.getTimeout());
+        
         CompletableFuture.runAsync(() -> {
-            // 1、基础校验
-            try {
-                if (this.state != AgentState.IDLE) {
-                    sseEmitter.send("错误：无法从状态运行代理：" + this.state);
-                    sseEmitter.complete();
-                    return;
-                }
-                if (StrUtil.isBlank(userPrompt)) {
-                    sseEmitter.send("错误：不能使用空提示词运行代理");
-                    sseEmitter.complete();
-                    return;
-                }
-            } catch (Exception e) {
-                sseEmitter.completeWithError(e);
+            // 尝试获取锁
+            if (!executionLock.tryLock()) {
+                sendError(emitter, "智能体正在运行中");
+                return;
             }
-            // 2、执行，更改状态
-            this.state = AgentState.RUNNING;
-            // 记录消息上下文
-            messageList.add(new UserMessage(userPrompt));
-            // 保存结果列表
-            List<String> results = new ArrayList<>();
+            
             try {
-                // 执行循环
-                for (int i = 0; i < maxSteps && state != AgentState.FINISHED; i++) {
-                    int stepNumber = i + 1;
-                    currentStep = stepNumber;
-                    log.info("Executing step {}/{}", stepNumber, maxSteps);
-                    // 单步执行
-                    String stepResult = step();
-                    String result = "Step " + stepNumber + ": " + stepResult;
-                    results.add(result);
-                    // 输出当前每一步的结果到 SSE
-                    sseEmitter.send(result);
-                }
-                // 检查是否超出步骤限制
-                if (currentStep >= maxSteps) {
-                    state = AgentState.FINISHED;
-                    results.add("Terminated: Reached max steps (" + maxSteps + ")");
-                    sseEmitter.send("执行结束：达到最大步骤（" + maxSteps + "）");
-                }
-                // 正常完成
-                sseEmitter.complete();
+                executeWithLifecycle(request, emitter);
+                emitter.complete();
             } catch (Exception e) {
-                state = AgentState.ERROR;
-                log.error("error executing agent", e);
-                try {
-                    sseEmitter.send("执行错误：" + e.getMessage());
-                    sseEmitter.complete();
-                } catch (IOException ex) {
-                    sseEmitter.completeWithError(ex);
-                }
+                emitter.completeWithError(e);
             } finally {
-                // 3、清理资源
-                this.cleanup();
+                executionLock.unlock();
             }
         });
-
-        // 设置超时回调
-        sseEmitter.onTimeout(() -> {
-            this.state = AgentState.ERROR;
-            this.cleanup();
-            log.warn("SSE connection timeout");
-        });
-        // 设置完成回调
-        sseEmitter.onCompletion(() -> {
-            if (this.state == AgentState.RUNNING) {
-                this.state = AgentState.FINISHED;
-            }
-            this.cleanup();
-            log.info("SSE connection completed");
-        });
-        return sseEmitter;
+        
+        return emitter;
+    }
+    
+    /**
+     * 异步执行
+     */
+    public CompletableFuture<AgentResult> runAsync(AgentRequest request) {
+        return CompletableFuture.supplyAsync(() -> run(request));
     }
 
     /**
-     * 定义单个步骤
-     *
-     * @return
+     * 生命周期管理（核心执行逻辑）
      */
-    public abstract String step();
-
+    private AgentResult executeWithLifecycle(AgentRequest request, SseEmitter emitter) {
+        // 验证请求
+        request.validate();
+        
+        // 创建上下文
+        AgentContext context = createContext(request, emitter);
+        
+        try {
+            // 前置拦截
+            interceptors.forEach(i -> i.beforeRun(context));
+            
+            // 状态转换（CAS 操作保证原子性）
+            if (!state.compareAndSet(AgentState.IDLE, AgentState.RUNNING)) {
+                return AgentResult.failure("状态转换失败");
+            }
+            
+            // 执行核心逻辑
+            AgentResult result = doRun(context);
+            
+            // 后置拦截
+            interceptors.forEach(i -> i.afterRun(context, result));
+            
+            // 更新状态
+            state.set(AgentState.FINISHED);
+            return result;
+            
+        } catch (Exception e) {
+            log.error("智能体执行失败: {}", agentId, e);
+            state.set(AgentState.ERROR);
+            
+            // 异常拦截
+            interceptors.forEach(i -> i.onError(context, e));
+            
+            return AgentResult.failure(e.getMessage());
+        } finally {
+            // 清理资源
+            cleanup(context);
+            // 重置状态
+            state.set(AgentState.IDLE);
+        }
+    }
+    
     /**
-     * 清理资源
+     * 创建执行上下文
      */
-    protected void cleanup() {
+    private AgentContext createContext(AgentRequest request, SseEmitter emitter) {
+        return AgentContext.builder()
+                .agentId(agentId)
+                .sessionId(UUID.randomUUID().toString())
+                .userId(request.getUserId())
+                .userPrompt(request.getUserPrompt())
+                .params(request.getParams())
+                .startTime(System.currentTimeMillis())
+                .emitter(emitter)
+                .build();
+    }
+    
+    /**
+     * 发送错误消息
+     */
+    private void sendError(SseEmitter emitter, String message) {
+        try {
+            emitter.send(SseEmitter.event().name("error").data(message));
+            emitter.complete();
+        } catch (Exception e) {
+            emitter.completeWithError(e);
+        }
+    }
+    
+    /**
+     * 子类实现核心执行逻辑
+     */
+    protected abstract AgentResult doRun(AgentContext context);
+    
+    /**
+     * 获取智能体能力描述
+     */
+    public abstract AgentCapability getCapability();
+    
+    /**
+     * 清理资源（子类可重写）
+     */
+    protected void cleanup(AgentContext context) {
         // 子类可以重写此方法来清理资源
     }
 }

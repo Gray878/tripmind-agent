@@ -238,42 +238,47 @@ public class TripPlanController {
 
 ## 📋 开发进度
 
-### 第一阶段：核心框架 ✅
+### 第一阶段：核心框架 ✅ 已完成
 
-- [x] BaseAgent 实现
-- [x] ReActAgent 实现
-- [x] ToolCallAgent 实现
-- [x] 拦截器机制
-- [x] 核心模型类
+- [x] BaseAgent 实现（生产级：并发安全、流式输出、拦截器机制）
+- [x] ReActAgent 实现（思考-行动循环）
+- [x] ToolCallAgent 实现（完整工具调用逻辑）
+- [x] 拦截器机制（日志、监控、审计）
+- [x] 核心模型类（Config、Context、Request、Result、Capability等）
 
-### 第二阶段：具体智能体 🚧
+### 第二阶段：具体智能体 ✅ 已完成
 
-- [ ] TripMindOrchestrator（主管智能体）
-- [ ] ResearchAgent（调研智能体）
-- [ ] BudgetAgent（预算智能体）
-- [ ] WeatherAgent（天气智能体）
-- [ ] ItineraryAgent（行程智能体）
+- [x] TripMindOrchestrator（主管智能体 - 任务分解、并行调度、结果汇总）
+- [x] ResearchAgent（调研智能体 - 景点、美食、交通）
+- [x] BudgetAgent（预算智能体 - 费用计算、预算分配）
+- [x] WeatherAgent（天气智能体 - 天气查询、穿衣建议）
+- [x] ItineraryAgent（行程智能体 - 行程优化、RAG增强）
 
-### 第三阶段：工具调用层与基础设施 🚧
+### 第三阶段：工具调用层与基础设施 ✅ 已完成
 
-- [ ] ToolExecutor（工具执行器）
-- [ ] ToolRegistry（工具注册中心）
-- [ ] AgentRegistry（智能体注册中心）
-- [ ] MessageBus（消息总线）
+- [x] AgentRegistry（智能体注册中心 - 自动注册、能力匹配）
+- [x] MessageBus（消息总线 - 发布订阅、请求响应）
+- [x] InMemoryMessageBus（内存实现）
+- [x] TripMindConfig（配置管理）
 
-### 第四阶段：API 与前端 📅
+### 第四阶段：API 与前端 ✅ 已完成
 
-- [ ] TripPlanController（REST API）
-- [ ] SSE 流式输出
-- [ ] 前端页面开发
-- [ ] PDF 生成功能
+- [x] TripPlanController（REST API）
+  - [x] POST /api/trip/plan（同步创建规划）
+  - [x] POST /api/trip/plan/stream（流式创建规划 - SSE）
+  - [x] GET /api/trip/plan/{id}（查询规划 - 待实现）
+  - [x] GET /api/trip/plan/{id}/pdf（下载PDF - 待实现）
+- [x] Knife4j API 文档集成
+- [x] 集成测试
 
-### 第五阶段：优化与扩展 📅
+### 第五阶段：优化与扩展 📅 待开发
 
-- [ ] 缓存优化
-- [ ] 监控指标
+- [ ] 缓存优化（Caffeine）
+- [ ] 监控指标（Prometheus）
 - [ ] 性能优化
-- [ ] 功能扩展
+- [ ] PDF 生成功能完善
+- [ ] 持久化存储
+- [ ] 更多智能体（酒店、机票、地图等）
 
 ## 🤝 贡献指南
 
