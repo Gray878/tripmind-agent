@@ -14,7 +14,7 @@ spring:
       api-key: sk-dc0da832fe104ffb95675cb55412d84e
       chat:
         options:
-          model: qwen-plus
+          model: qwen3.5-flash
     ollama:
       base-url: http://localhost:11434
       chat:
