@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * TripMind 集成测试
  * 
- * @author TripMind Team
+ * @author hgh
  */
 @Slf4j
 @SpringBootTest

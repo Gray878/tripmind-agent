@@ -17,19 +17,11 @@ public class ReReadingAdvisor implements CallAdvisor, StreamAdvisor {
 
     /**
      * 执行请求前，改写 Prompt
-     *
-     * @param chatClientRequest
-     * @return
      */
     private ChatClientRequest before(ChatClientRequest chatClientRequest) {
         String userText = chatClientRequest.prompt().getUserMessage().getText();
-        // 添加上下文参数
         chatClientRequest.context().put("re2_input_query", userText);
-        // 修改用户提示词
-        String newUserText = """
-                %s
-                Read the question again: %s
-                """.formatted(userText, userText);
+        String newUserText = String.format("%s\nRead the question again: %s", userText, userText);
         Prompt newPrompt = chatClientRequest.prompt().augmentUserMessage(newUserText);
         return new ChatClientRequest(newPrompt, chatClientRequest.context());
     }

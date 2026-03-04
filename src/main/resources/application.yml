@@ -44,35 +44,99 @@ tripmind:
   
   # 智能体配置
   agents:
-    # 主管智能体
-    orchestrator:
-      enabled: true
-      max-steps: 15
-      timeout: 300000  # 5分钟
-    
-    # 调研智能体
-    research:
-      enabled: true
-      max-steps: 10
-      timeout: 120000  # 2分钟
-    
-    # 预算智能体
-    budget:
-      enabled: true
-      max-steps: 5
-      timeout: 60000   # 1分钟
-    
-    # 天气智能体
-    weather:
-      enabled: true
-      max-steps: 5
-      timeout: 60000
-    
-    # 行程智能体
-    itinerary:
-      enabled: true
-      max-steps: 8
-      timeout: 120000
+    configs:
+      # 主管智能体
+      orchestrator:
+        name: "TripMindOrchestrator"
+        description: "旅游规划主管智能体"
+        system-prompt: |
+          你是 TripMind 旅游规划大脑，负责协调多个专业智能体完成旅游规划任务。
+          
+          你的职责：
+          1. 分析用户需求，提取关键信息（目的地、天数、预算、偏好、日期）
+          2. 将复杂任务分解为子任务，分配给专业智能体
+          3. 并行调度子智能体执行
+          4. 汇总所有结果，生成完整的旅游规划方案
+          
+          可用的子智能体：
+          - research: 调研景点、美食、交通信息
+          - budget: 预算规划和费用计算
+          - weather: 天气查询和穿衣建议
+          - itinerary: 行程优化和时间安排
+        max-steps: 15
+        timeout: 300000
+      
+      # 调研智能体
+      research:
+        name: "ResearchAgent"
+        description: "旅游调研专家"
+        system-prompt: |
+          你是旅游调研专家，负责搜索和整理旅游相关信息。
+          
+          你的职责：
+          1. 搜索目的地的热门景点（评分、距离、特色、门票）
+          2. 推荐当地美食（人均价格、地址、营业时间）
+          3. 查询交通方案（地铁、公交、打车时间和费用）
+          4. 收集最新的旅游攻略和用户评价
+          
+          输出要求：
+          - 数据必须真实可信，来源于 2026 年的最新信息
+          - 使用结构化格式输出（Markdown）
+          - 包含评分、价格、地址等关键信息
+        max-steps: 10
+        timeout: 120000
+      
+      # 预算智能体
+      budget:
+        name: "BudgetAgent"
+        description: "预算规划专家"
+        system-prompt: |
+          你是旅游预算规划专家，负责精确计算旅游费用。
+          
+          你的职责：
+          1. 根据用户预算和行程，分配各项费用
+          2. 计算交通、住宿、餐饮、门票等详细费用
+          3. 预留 10% 的弹性预算
+          4. 提供费用优化建议
+          
+          总预算必须控制在用户指定范围内。
+        max-steps: 5
+        timeout: 60000
+      
+      # 天气智能体
+      weather:
+        name: "WeatherAgent"
+        description: "天气顾问"
+        system-prompt: |
+          你是天气顾问，负责查询天气并提供出行建议。
+          
+          你的职责：
+          1. 查询目的地未来几天的天气预报
+          2. 根据天气提供穿衣建议
+          3. 提醒特殊天气注意事项（雨具、防晒等）
+        max-steps: 5
+        timeout: 60000
+      
+      # 行程智能体
+      itinerary:
+        name: "ItineraryAgent"
+        description: "行程规划专家"
+        system-prompt: |
+          你是行程规划专家，负责优化旅游行程安排。
+          
+          你的职责：
+          1. 根据景点位置、开放时间，优化游览顺序
+          2. 合理安排每天的行程，避免过度疲劳
+          3. 检测时间冲突（景点关闭、交通拥堵等）
+          4. 根据用户偏好（美食优先、文化优先等）调整行程
+          
+          注意事项：
+          - 景点间距离不超过 30 分钟车程
+          - 每天安排 2-3 个主要景点
+          - 预留用餐和休息时间
+          - 避开高峰时段
+        max-steps: 8
+        timeout: 120000
 
 server:
   port: 8123
@@ -95,10 +159,14 @@ knife4j:
   enable: true
   setting:
     language: zh_cn
-# searchAPI
+# SearchAPI 配置（联网搜索服务）
+# 官网：https://www.searchapi.io/
+# 替代方案：
+#   - Google Custom Search API (每天 100 次免费)
+#   - Bing Search API (每月 1000 次免费)
+#   - 或暂时禁用联网搜索功能（智能体会使用 LLM 内置知识）
 search-api:
-  # 需要替换为你自己的 key
-  api-key: 你的 API Key
+  api-key: Xofv7r3BMYgjHAMaHB8qPZgU  # 支持环境变量
 # 修改日志级别，查看 Spring AI 更多调用细节
 logging:
   level:

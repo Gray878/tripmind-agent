@@ -9,7 +9,7 @@ import java.util.Map;
 /**
  * 智能体配置类
  * 
- * @author TripMind Team
+ * @author hgh
  */
 @Data
 @Builder

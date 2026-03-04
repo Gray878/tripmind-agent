@@ -8,7 +8,7 @@ import java.util.Map;
 /**
  * 旅游规划请求
  * 
- * @author TripMind Team
+ * @author hgh
  */
 @Data
 public class TripRequest {

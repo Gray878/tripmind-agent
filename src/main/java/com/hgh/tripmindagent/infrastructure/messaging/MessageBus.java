@@ -6,7 +6,7 @@ import java.util.concurrent.CompletableFuture;
  * 消息总线接口
  * 支持发布-订阅和请求-响应模式
  * 
- * @author TripMind Team
+ * @author hgh
  */
 public interface MessageBus {
     

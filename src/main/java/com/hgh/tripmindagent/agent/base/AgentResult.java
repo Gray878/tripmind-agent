@@ -11,7 +11,7 @@ import java.util.Map;
 /**
  * 智能体响应对象
  * 
- * @author TripMind Team
+ * @author hgh
  */
 @Data
 @Builder

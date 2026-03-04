@@ -3,6 +3,8 @@ package com.hgh.tripmindagent.agent.research;
 import com.hgh.tripmindagent.agent.ToolCallAgent;
 import com.hgh.tripmindagent.agent.base.AgentCapability;
 import com.hgh.tripmindagent.agent.base.AgentConfig;
+import com.hgh.tripmindagent.tools.WebScrapingTool;
+import com.hgh.tripmindagent.tools.WebSearchTool;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
@@ -21,59 +23,36 @@ import java.util.List;
  * 3. 查询交通方案（地铁、公交、打车时间和费用）
  * 4. 收集最新的旅游攻略和用户评价
  * 
- * @author TripMind Team
+ * @author hgh
  */
 @Slf4j
 @Component
 public class ResearchAgent extends ToolCallAgent {
     
-    private static final String SYSTEM_PROMPT = """
-        你是旅游调研专家，负责搜索和整理旅游相关信息。
-        
-        你的职责：
-        1. 搜索目的地的热门景点（评分、距离、特色、门票）
-        2. 推荐当地美食（人均价格、地址、营业时间）
-        3. 查询交通方案（地铁、公交、打车时间和费用）
-        4. 收集最新的旅游攻略和用户评价
-        
-        输出要求：
-        - 数据必须真实可信，来源于 2026 年的最新信息
-        - 使用结构化格式输出（Markdown）
-        - 包含评分、价格、地址等关键信息
-        
-        可用工具：
-        - web_search: 联网搜索
-        - web_scraping: 网页抓取
-        
-        输出格式示例：
-        ### 🏛️ 热门景点
-        1. **景点名称** ⭐ 4.8/5.0
-           - 地址：xxx
-           - 门票：¥xxx
-           - 特色：xxx
-           
-        ### 🍜 美食推荐
-        1. **餐厅名称** ⭐ 4.5/5.0
-           - 人均：¥xxx
-           - 地址：xxx
-           - 营业时间：xxx
-        """;
-    
     public ResearchAgent(
-        @Qualifier("webSearchTool") ToolCallback webSearchTool,
-        @Qualifier("webScrapingTool") ToolCallback webScrapingTool,
-        ChatModel chatModel) {
+        @Qualifier("webSearchTool") WebSearchTool webSearchTool,
+        @Qualifier("webScrapingTool") WebScrapingTool webScrapingTool,
+        @Qualifier("dashscopeChatModel") ChatModel chatModel,
+        com.hgh.tripmindagent.config.AgentConfigProperties configProperties) {
         
         super("research",
-              AgentConfig.builder()
-                  .name("ResearchAgent")
-                  .description("旅游调研专家")
-                  .systemPrompt(SYSTEM_PROMPT)
-                  .maxSteps(10)
-                  .timeout(120000)
-                  .build(),
+              buildConfig(configProperties),
               ChatClient.builder(chatModel).build(),
-              new ToolCallback[]{webSearchTool, webScrapingTool});
+              new Object[]{webSearchTool, webScrapingTool});
+    }
+    
+    /**
+     * 从配置文件构建 AgentConfig
+     */
+    private static AgentConfig buildConfig(com.hgh.tripmindagent.config.AgentConfigProperties configProperties) {
+        var configItem = configProperties.getConfig("research");
+        return AgentConfig.builder()
+                .name(configItem.getName())
+                .description(configItem.getDescription())
+                .systemPrompt(configItem.getSystemPrompt())
+                .maxSteps(configItem.getMaxSteps())
+                .timeout(configItem.getTimeout())
+                .build();
     }
     
     @Override

@@ -4,7 +4,7 @@ package com.hgh.tripmindagent.agent.base;
  * 智能体拦截器接口
  * 用于实现横切关注点（日志、监控、审计等）
  * 
- * @author TripMind Team
+ * @author hgh
  */
 public interface AgentInterceptor {
     

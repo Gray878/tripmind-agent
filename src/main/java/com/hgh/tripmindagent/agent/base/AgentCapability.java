@@ -11,7 +11,7 @@ import java.util.Map;
 /**
  * 智能体能力描述
  * 
- * @author TripMind Team
+ * @author hgh
  */
 @Data
 @Builder

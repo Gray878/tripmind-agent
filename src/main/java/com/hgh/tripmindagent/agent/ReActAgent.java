@@ -1,7 +1,6 @@
 package com.hgh.tripmindagent.agent;
 
 import com.hgh.tripmindagent.agent.base.*;
-import com.hgh.tripmindagent.agent.model.AgentState;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 
@@ -9,14 +8,11 @@ import org.springframework.ai.chat.client.ChatClient;
  * ReAct (Reasoning and Acting) 模式的智能体
  * 实现了思考-行动的循环模式
  * 
- * @author TripMind Team
+ * @author hgh
  */
 @Slf4j
 public abstract class ReActAgent extends BaseAgent {
-    
-    /**
-     * 构造函数
-     */
+
     protected ReActAgent(String agentId, AgentConfig config, ChatClient chatClient) {
         super(agentId, config, chatClient);
     }

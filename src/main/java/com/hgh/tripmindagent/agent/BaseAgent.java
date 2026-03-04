@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * 智能体基类（生产级）
+ * 智能体基类
  * 
  * 核心特性：
  * 1. 并发安全：使用 AtomicReference + ReentrantLock
@@ -24,7 +24,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * 3. 拦截器机制：支持日志、监控、审计等横切关注点
  * 4. 模板方法：定义执行骨架，子类实现细节
  * 
- * @author TripMind Team
+ * @author hgh
  */
 @Slf4j
 @Getter
@@ -41,10 +41,7 @@ public abstract class BaseAgent {
     // 执行状态（并发安全）
     private final AtomicReference<AgentState> state = new AtomicReference<>(AgentState.IDLE);
     private final ReentrantLock executionLock = new ReentrantLock();
-    
-    /**
-     * 构造函数
-     */
+
     protected BaseAgent(String agentId, AgentConfig config, ChatClient chatClient) {
         this.agentId = agentId;
         this.config = config;
@@ -73,7 +70,7 @@ public abstract class BaseAgent {
         // 按优先级排序
         interceptors.sort(Comparator.comparingInt(AgentInterceptor::getOrder));
     }
-
+    
     /**
      * 同步执行
      */
@@ -89,7 +86,7 @@ public abstract class BaseAgent {
             executionLock.unlock();
         }
     }
-
+    
     /**
      * 流式执行（SSE）
      */
@@ -122,7 +119,7 @@ public abstract class BaseAgent {
     public CompletableFuture<AgentResult> runAsync(AgentRequest request) {
         return CompletableFuture.supplyAsync(() -> run(request));
     }
-
+    
     /**
      * 生命周期管理（核心执行逻辑）
      */

@@ -12,7 +12,7 @@ import java.util.concurrent.*;
  * 内存消息总线实现
  * 适用于开发和测试环境
  * 
- * @author TripMind Team
+ * @author hgh
  */
 @Slf4j
 @Component

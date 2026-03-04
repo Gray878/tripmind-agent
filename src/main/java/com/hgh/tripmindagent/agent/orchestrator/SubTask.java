@@ -9,7 +9,7 @@ import java.util.Map;
 /**
  * 子任务模型
  * 
- * @author TripMind Team
+ * @author hgh
  */
 @Data
 @Builder

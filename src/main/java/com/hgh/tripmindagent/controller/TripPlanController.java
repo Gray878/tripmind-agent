@@ -15,7 +15,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 /**
  * 旅游规划控制器
  * 
- * @author TripMind Team
+ * @author hgh
  */
 @Slf4j
 @RestController

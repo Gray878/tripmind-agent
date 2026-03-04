@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
  * 日志拦截器
  * 记录智能体执行的详细日志
  * 
- * @author TripMind Team
+ * @author hgh
  */
 @Slf4j
 @Component

@@ -3,7 +3,7 @@ package com.hgh.tripmindagent.infrastructure.messaging;
 /**
  * 消息处理器接口
  * 
- * @author TripMind Team
+ * @author hgh
  */
 @FunctionalInterface
 public interface MessageHandler {

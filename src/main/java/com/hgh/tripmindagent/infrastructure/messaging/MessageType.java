@@ -3,7 +3,7 @@ package com.hgh.tripmindagent.infrastructure.messaging;
 /**
  * 消息类型枚举
  * 
- * @author TripMind Team
+ * @author hgh
  */
 public enum MessageType {
     

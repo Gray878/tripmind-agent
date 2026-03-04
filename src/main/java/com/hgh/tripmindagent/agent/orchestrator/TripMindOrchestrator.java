@@ -5,12 +5,14 @@ import com.hgh.tripmindagent.agent.base.AgentCapability;
 import com.hgh.tripmindagent.agent.base.AgentConfig;
 import com.hgh.tripmindagent.agent.base.AgentRequest;
 import com.hgh.tripmindagent.agent.base.AgentResult;
-import com.hgh.tripmindagent.infrastructure.registry.AgentRegistry;
+import com.hgh.tripmindagent.infrastructure.registry.AgentLocator;
+import com.hgh.tripmindagent.tools.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -20,58 +22,47 @@ import java.util.stream.Collectors;
 
 /**
  * 主管智能体（协调者）
- * 
- * 职责：
- * 1. 任务分解：分析用户需求，提取关键信息
- * 2. 并行调度：分配任务给专业智能体
- * 3. 结果汇总：整合所有子智能体的输出
- * 
- * @author TripMind Team
+ *
+ * @author hgh
  */
 @Slf4j
 @Component
 public class TripMindOrchestrator extends ToolCallAgent {
     
+    private AgentLocator agentLocator;  // 依赖接口，不依赖具体实现
+    
+    /**
+     * Setter 注入 + @Lazy，彻底打破循环依赖
+     */
     @Autowired
-    private AgentRegistry agentRegistry;
+    @Lazy
+    public void setAgentLocator(AgentLocator agentLocator) {
+        this.agentLocator = agentLocator;
+    }
     
-    private static final String SYSTEM_PROMPT = """
-        你是 TripMind 旅游规划大脑，负责协调多个专业智能体完成旅游规划任务。
+    public TripMindOrchestrator(
+            @Qualifier("allAgentTools") List<Object> allTools,
+            @Qualifier("dashscopeChatModel") ChatModel chatModel,
+            com.hgh.tripmindagent.config.AgentConfigProperties configProperties) {
         
-        你的职责：
-        1. 分析用户需求，提取关键信息（目的地、天数、预算、偏好、日期）
-        2. 将复杂任务分解为子任务，分配给专业智能体
-        3. 并行调度子智能体执行
-        4. 汇总所有结果，生成完整的旅游规划方案
-        
-        可用的子智能体：
-        - research: 调研景点、美食、交通信息
-        - budget: 预算规划和费用计算
-        - weather: 天气查询和穿衣建议
-        - itinerary: 行程优化和时间安排
-        
-        输出格式：JSON 任务列表
-        {
-          "tasks": [
-            {"agentId": "research", "query": "...", "priority": 1},
-            {"agentId": "budget", "query": "...", "priority": 1},
-            {"agentId": "weather", "query": "...", "priority": 2},
-            {"agentId": "itinerary", "query": "...", "priority": 3}
-          ]
-        }
-        """;
-    
-    public TripMindOrchestrator(ToolCallback[] allTools, ChatModel chatModel) {
         super("orchestrator", 
-              AgentConfig.builder()
-                  .name("TripMindOrchestrator")
-                  .description("旅游规划主管智能体")
-                  .systemPrompt(SYSTEM_PROMPT)
-                  .maxSteps(15)
-                  .timeout(300000)
-                  .build(),
+              buildConfig(configProperties),
               ChatClient.builder(chatModel).build(),
-              allTools);
+              allTools.toArray());
+    }
+    
+    /**
+     * 从配置文件构建 AgentConfig
+     */
+    private static AgentConfig buildConfig(com.hgh.tripmindagent.config.AgentConfigProperties configProperties) {
+        var configItem = configProperties.getConfig("orchestrator");
+        return AgentConfig.builder()
+                .name(configItem.getName())
+                .description(configItem.getDescription())
+                .systemPrompt(configItem.getSystemPrompt())
+                .maxSteps(configItem.getMaxSteps())
+                .timeout(configItem.getTimeout())
+                .build();
     }
     
     @Override
@@ -94,7 +85,7 @@ public class TripMindOrchestrator extends ToolCallAgent {
         List<CompletableFuture<AgentResult>> futures = tasks.stream()
             .map(task -> {
                 try {
-                    var agent = agentRegistry.getAgent(task.getAgentId());
+                    var agent = agentLocator.getAgent(task.getAgentId());
                     AgentRequest request = AgentRequest.builder()
                         .userPrompt(task.getQuery())
                         .params(task.getParams())

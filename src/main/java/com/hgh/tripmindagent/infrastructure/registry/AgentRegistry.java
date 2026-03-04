@@ -14,12 +14,12 @@ import java.util.stream.Collectors;
 /**
  * 智能体注册中心
  * 负责管理所有智能体的注册、发现和匹配
- * 
- * @author TripMind Team
+ *
+ * @author hgh
  */
 @Slf4j
 @Component
-public class AgentRegistry {
+public class AgentRegistry implements AgentLocator {
     
     private final Map<String, BaseAgent> agents = new ConcurrentHashMap<>();
     private final Map<String, AgentCapability> capabilities = new ConcurrentHashMap<>();

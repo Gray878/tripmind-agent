@@ -10,7 +10,7 @@ import java.util.Map;
 /**
  * TripMind 配置类
  * 
- * @author TripMind Team
+ * @author hgh
  */
 @Data
 @Configuration

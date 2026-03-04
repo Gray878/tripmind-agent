@@ -10,7 +10,7 @@ import java.util.UUID;
 /**
  * 智能体消息
  * 
- * @author TripMind Team
+ * @author hgh
  */
 @Data
 @Builder

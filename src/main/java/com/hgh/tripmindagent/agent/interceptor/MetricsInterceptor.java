@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
  * 性能监控拦截器
  * 记录智能体执行的性能指标
  * 
- * @author TripMind Team
+ * @author hgh
  */
 @Slf4j
 @Component
