@@ -1,0 +1,45 @@
+# 测试环境配置
+
+spring:
+  ai:
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:test-api-key}
+      chat:
+        options:
+          model: qwen3.5-flash
+          temperature: 0.7
+    
+    ollama:
+      base-url: http://localhost:11434
+      chat:
+        options:
+          model: qwen2.5:7b
+          temperature: 0.7
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/tripmind_test
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+
+# SearchAPI 配置
+search-api:
+  api-key: ${SEARCH_API_KEY:test-search-key}
+  base-url: https://www.searchapi.io/api/v1/search
+
+# 日志配置
+logging:
+  level:
+    root: INFO
+    com.hgh.tripmindagent: DEBUG
+    org.springframework.ai: DEBUG
+    org.springframework.web: DEBUG
+
+# 服务器配置
+server:
+  port: 0  # 随机端口，避免冲突
