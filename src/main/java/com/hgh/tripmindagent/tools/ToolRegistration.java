@@ -4,8 +4,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import java.util.List;
-
 /**
  * 集中的工具注册类
  * 
@@ -74,10 +72,10 @@ public class ToolRegistration {
     }
     
     /**
-     * 所有工具的集合（用于需要所有工具的场景）
+     * 所有工具的数组（避免集合注入时出现 List 嵌套）
      */
     @Bean
-    public List<Object> allAgentTools(
+    public Object[] allAgentTools(
             FileOperationTool fileOperationTool,
             WebSearchTool webSearchTool,
             WebScrapingTool webScrapingTool,
@@ -85,7 +83,7 @@ public class ToolRegistration {
             TerminalOperationTool terminalOperationTool,
             PDFGenerationTool pdfGenerationTool,
             TerminateTool terminateTool) {
-        return List.of(
+        return new Object[] {
                 fileOperationTool,
                 webSearchTool,
                 webScrapingTool,
@@ -93,6 +91,6 @@ public class ToolRegistration {
                 terminalOperationTool,
                 pdfGenerationTool,
                 terminateTool
-        );
+        };
     }
 }

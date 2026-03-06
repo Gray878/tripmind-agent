@@ -19,7 +19,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/trip")
+@RequestMapping("/trip")
 @Tag(name = "旅游规划", description = "旅游规划相关接口")
 public class TripPlanController {
     

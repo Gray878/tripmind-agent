@@ -21,7 +21,7 @@ import java.util.List;
 public class BudgetAgent extends ToolCallAgent {
     
     public BudgetAgent(
-            @Qualifier("dashscopeChatModel") ChatModel chatModel,
+            @Qualifier("openaiChatModel") ChatModel chatModel,
             com.hgh.tripmindagent.config.AgentConfigProperties configProperties) {
         super("budget",
               buildConfig(configProperties),

@@ -24,7 +24,7 @@ public class WeatherAgent extends ToolCallAgent {
     
     public WeatherAgent(
         @Qualifier("webSearchTool") WebSearchTool webSearchTool,
-        @Qualifier("dashscopeChatModel") ChatModel chatModel,
+        @Qualifier("openaiChatModel") ChatModel chatModel,
         com.hgh.tripmindagent.config.AgentConfigProperties configProperties) {
         
         super("weather",

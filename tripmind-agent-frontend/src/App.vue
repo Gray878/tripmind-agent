@@ -14,13 +14,15 @@
 }
 
 html, body {
-  font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   font-size: 16px;
-  color: #333;
-  background-color: #f0f2f5;
+  color: #1a1a1a;
+  background-color: #ffffff;
   width: 100%;
   height: 100%;
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #app {
@@ -35,6 +37,7 @@ a {
 
 button {
   cursor: pointer;
+  font-family: inherit;
 }
 
 /* 响应式字体大小 */
@@ -52,21 +55,20 @@ button {
 
 /* 滚动条样式 */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 3px;
+  background: #f5f5f5;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #ccc;
-  border-radius: 3px;
+  background: #d1d1d1;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #aaa;
+  background: #999999;
 }
 </style>

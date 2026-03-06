@@ -3,23 +3,63 @@ spring:
     name: tripmind-agent
   profiles:
     active: local
-# 临时注释掉，便于大家开发调试和部署（实际填写 PgVector 数据库信息）
+# 临时注释掉，开发调试和部署（实际填写 PgVector 数据库信息）
 #  datasource:
 #    url: xxx
 #    username: root
 #    password: 123456
   ai:
-    dashscope:
-      # 需要替换为你自己的 key
-      api-key: sk-dc0da832fe104ffb95675cb55412d84e
+    retry:
+      max-attempts: 3
+      on-client-errors: false
+    openai:
+      # OpenAI 兼容 API 配置（支持所有兼容 OpenAI 格式的模型）
+      api-key: sk-5048bc60a13f4fed81bb0dfe1c31904c
+      # 注意：Spring AI 会拼接 completions-path，base-url 建议不要再带 /v1
+      base-url: https://api.deepseek.com
+      completions-path: /v1/chat/completions
+      embeddings-path: /v1/embeddings
       chat:
         options:
-          model: qwen3.5-flash
+          model: deepseek-chat
+          temperature: 0.7
+      # 
+      # 切换到其他模型只需修改以下三个参数：
+      # 
+      # DeepSeek:
+      #   api-key: sk-xxx
+      #   base-url: https://api.deepseek.com
+      #   model: deepseek-chat
+      #
+      # Qwen (OpenAI-compatible endpoint):
+      #   api-key: sk-xxx
+      #   base-url: https://your-qwen-compatible-endpoint/v1
+      #   model: qwen-plus
+      #
+      # OpenAI 官方:
+      #   api-key: sk-xxx
+      #   base-url: https://api.openai.com/v1
+      #   model: gpt-4o
+      #
+      # Moonshot (月之暗面):
+      #   api-key: sk-xxx
+      #   base-url: https://api.moonshot.cn/v1
+      #   model: moonshot-v1-8k
+      #
+      # 智谱 AI (GLM):
+      #   api-key: xxx
+      #   base-url: https://open.bigmodel.cn/api/paas/v4
+      #   model: glm-4
+      #
+      # 零一万物 (Yi):
+      #   api-key: xxx
+      #   base-url: https://api.lingyiwanwu.com/v1
+      #   model: yi-large
     ollama:
       base-url: http://localhost:11434
       chat:
         model: gemma3:1b
-# 临时注释掉，便于大家开发调试和部署（实际需要启动 MCP 服务）
+# 临时注释掉，便于开发调试和部署（实际需要启动 MCP 服务）
 #    mcp:
 #      client:
 #        sse:
@@ -28,7 +68,7 @@ spring:
 #              url: http://localhost:8127
 #        stdio:
 #          servers-configuration: classpath:mcp-servers.json
-# 临时注释掉，便于大家开发调试和部署（实际需要启动 PgVector 数据库）
+# 临时注释掉，便于开发调试和部署（实际需要启动 PgVector 数据库）
 #    vectorstore:
 #      pgvector:
 #        index-type: HNSW
@@ -63,7 +103,7 @@ tripmind:
           - budget: 预算规划和费用计算
           - weather: 天气查询和穿衣建议
           - itinerary: 行程优化和时间安排
-        max-steps: 15
+        max-steps: 3
         timeout: 300000
       
       # 调研智能体

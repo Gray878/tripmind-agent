@@ -38,13 +38,13 @@ public abstract class ReActAgent extends BaseAgent {
             log.info("智能体 [{}] 执行第 {} 步", getAgentId(), step);
             context.sendEvent("step_start", "Step " + step);
             
-            // 1. 思考
+            // 思考
             ThinkResult thinkResult = think(context);
             String thinkMsg = String.format("💭 思考: %s\n", thinkResult.getReasoning());
             resultBuilder.append(thinkMsg);
             context.sendEvent("think", thinkMsg);
             
-            // 2. 判断是否完成
+            // 判断是否完成
             if (thinkResult.isFinished()) {
                 log.info("智能体 [{}] 判断任务已完成", getAgentId());
                 resultBuilder.append("✅ 任务完成\n");
@@ -52,7 +52,7 @@ public abstract class ReActAgent extends BaseAgent {
                 break;
             }
             
-            // 3. 行动
+            // 行动
             ActResult actResult = act(context, thinkResult);
             String actMsg = String.format("🔧 行动: %s\n", actResult.getAction());
             String obsMsg = String.format("👀 观察: %s\n", actResult.getObservation());
@@ -60,10 +60,10 @@ public abstract class ReActAgent extends BaseAgent {
             context.sendEvent("act", actMsg);
             context.sendEvent("observe", obsMsg);
             
-            // 4. 更新上下文
+            // 更新上下文
             context.addHistory(thinkResult, actResult);
             
-            // 5. 检查是否终止
+            // 检查是否终止
             if (actResult.isTerminated()) {
                 log.info("智能体 [{}] 主动终止", getAgentId());
                 resultBuilder.append("🛑 智能体主动终止\n");

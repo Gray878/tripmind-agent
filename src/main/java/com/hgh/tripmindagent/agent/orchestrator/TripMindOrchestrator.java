@@ -6,7 +6,6 @@ import com.hgh.tripmindagent.agent.base.AgentConfig;
 import com.hgh.tripmindagent.agent.base.AgentRequest;
 import com.hgh.tripmindagent.agent.base.AgentResult;
 import com.hgh.tripmindagent.infrastructure.registry.AgentLocator;
-import com.hgh.tripmindagent.tools.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
@@ -16,7 +15,6 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -30,10 +28,7 @@ import java.util.stream.Collectors;
 public class TripMindOrchestrator extends ToolCallAgent {
     
     private AgentLocator agentLocator;  // 依赖接口，不依赖具体实现
-    
-    /**
-     * Setter 注入 + @Lazy，彻底打破循环依赖
-     */
+
     @Autowired
     @Lazy
     public void setAgentLocator(AgentLocator agentLocator) {
@@ -41,14 +36,14 @@ public class TripMindOrchestrator extends ToolCallAgent {
     }
     
     public TripMindOrchestrator(
-            @Qualifier("allAgentTools") List<Object> allTools,
-            @Qualifier("dashscopeChatModel") ChatModel chatModel,
+            @Qualifier("allAgentTools") Object[] allTools,
+            @Qualifier("openaiChatModel") ChatModel chatModel,
             com.hgh.tripmindagent.config.AgentConfigProperties configProperties) {
         
         super("orchestrator", 
               buildConfig(configProperties),
               ChatClient.builder(chatModel).build(),
-              allTools.toArray());
+              allTools);
     }
     
     /**

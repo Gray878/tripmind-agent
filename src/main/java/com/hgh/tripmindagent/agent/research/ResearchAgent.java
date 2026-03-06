@@ -32,7 +32,7 @@ public class ResearchAgent extends ToolCallAgent {
     public ResearchAgent(
         @Qualifier("webSearchTool") WebSearchTool webSearchTool,
         @Qualifier("webScrapingTool") WebScrapingTool webScrapingTool,
-        @Qualifier("dashscopeChatModel") ChatModel chatModel,
+        @Qualifier("openaiChatModel") ChatModel chatModel,
         com.hgh.tripmindagent.config.AgentConfigProperties configProperties) {
         
         super("research",

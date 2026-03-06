@@ -1,54 +1,163 @@
 import axios from 'axios'
 
-// 根据环境变量设置 API 基础 URL
-const API_BASE_URL = process.env.NODE_ENV === 'production' 
- ? '/api' // 生产环境使用相对路径，适用于前后端部署在同一域名下
- : 'http://localhost:8123/api' // 开发环境指向本地后端服务
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.PROD ? '/api' : 'http://localhost:8123/api')
+).replace(/\/$/, '')
 
-// 创建axios实例
 const request = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 60000
+  timeout: 60000,
+  headers: {
+    'Content-Type': 'application/json'
+  }
 })
 
-// 封装SSE连接
-export const connectSSE = (url, params, onMessage, onError) => {
-  // 构建带参数的URL
-  const queryString = Object.keys(params)
-    .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
-    .join('&')
-  
-  const fullUrl = `${API_BASE_URL}${url}?${queryString}`
-  
-  // 创建EventSource
-  const eventSource = new EventSource(fullUrl)
-  
-  eventSource.onmessage = event => {
-    let data = event.data
-    
-    // 检查是否是特殊标记
-    if (data === '[DONE]') {
-      if (onMessage) onMessage('[DONE]')
-    } else {
-      // 处理普通消息
-      if (onMessage) onMessage(data)
+request.interceptors.request.use(
+  (config) => config,
+  (error) => Promise.reject(error)
+)
+
+request.interceptors.response.use(
+  (response) => response.data,
+  (error) => {
+    console.error('API Error:', error)
+    return Promise.reject(error)
+  }
+)
+
+const parseSseFrame = (frame) => {
+  const lines = frame.split(/\r?\n/)
+  let event = 'message'
+  const dataLines = []
+
+  for (const line of lines) {
+    if (!line || line.startsWith(':')) {
+      continue
+    }
+    if (line.startsWith('event:')) {
+      event = line.slice(6).trim() || 'message'
+      continue
+    }
+    if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).trimStart())
     }
   }
-  
-  eventSource.onerror = error => {
-    if (onError) onError(error)
-    eventSource.close()
+
+  if (dataLines.length === 0) {
+    return null
   }
-  
-  // 返回eventSource实例，以便后续可以关闭连接
-  return eventSource
+
+  return {
+    event,
+    data: dataLines.join('\n')
+  }
 }
 
-// TODO: 后续实现 TripMind 旅游规划 API
-// export const chatWithTripMind = (message, chatId) => {
-//   return connectSSE('/api/trip/plan/stream', { message, chatId })
-// }
+/**
+ * Create trip plan (stream mode)
+ * @param {Object} data request payload: { userPrompt, userId }
+ * @param {Function} onMessage callback receives { event, data }
+ * @param {Function} onError error callback
+ * @returns {{close: Function}}
+ */
+export const createTripPlan = (data, onMessage, onError) => {
+  const url = `${API_BASE_URL}/trip/plan/stream`
+  const controller = new AbortController()
+
+  ;(async () => {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream'
+        },
+        body: JSON.stringify(data),
+        signal: controller.signal
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      if (!response.body) {
+        throw new Error('Empty response body')
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder('utf-8')
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) {
+          break
+        }
+
+        buffer += decoder.decode(value, { stream: true })
+        const normalized = buffer.replace(/\r\n/g, '\n')
+        const frames = normalized.split('\n\n')
+        buffer = frames.pop() || ''
+
+        for (const frame of frames) {
+          const parsed = parseSseFrame(frame)
+          if (parsed && onMessage) {
+            onMessage(parsed)
+          }
+        }
+      }
+
+      if (buffer.trim()) {
+        const parsed = parseSseFrame(buffer)
+        if (parsed && onMessage) {
+          onMessage(parsed)
+        }
+      }
+
+      if (onMessage) {
+        onMessage({ event: 'done', data: '[DONE]' })
+      }
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        return
+      }
+      if (onError) {
+        onError(error)
+      }
+    }
+  })()
+
+  return {
+    close: () => controller.abort()
+  }
+}
+
+/**
+ * Create trip plan (sync mode)
+ */
+export const createTripPlanSync = (data) => {
+  return request.post('/trip/plan', data)
+}
+
+/**
+ * Query trip plan by id
+ */
+export const getTripPlan = (planId) => {
+  return request.get(`/trip/plan/${planId}`)
+}
+
+/**
+ * Download plan PDF
+ */
+export const downloadPdf = (planId) => {
+  return request.get(`/trip/plan/${planId}/pdf`, {
+    responseType: 'blob'
+  })
+}
 
 export default {
-  // chatWithTripMind
+  createTripPlan,
+  createTripPlanSync,
+  getTripPlan,
+  downloadPdf
 }

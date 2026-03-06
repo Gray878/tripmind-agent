@@ -1,309 +1,439 @@
 package com.hgh.tripmindagent.agent;
 
 import cn.hutool.core.collection.CollUtil;
-import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
-import com.hgh.tripmindagent.agent.base.*;
+import com.hgh.tripmindagent.agent.base.ActResult;
+import com.hgh.tripmindagent.agent.base.AgentCapability;
+import com.hgh.tripmindagent.agent.base.AgentConfig;
+import com.hgh.tripmindagent.agent.base.AgentContext;
+import com.hgh.tripmindagent.agent.base.ThinkResult;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.model.tool.ToolExecutionResult;
-import org.springframework.ai.tool.ToolCallback;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
+import java.util.Set;
 
 /**
- * 工具调用型智能体
- * 实现了完整的工具调用逻辑
- * 
- * @author hgh
+ * Agent with explicit tool-call lifecycle control.
  */
 @Slf4j
 @Getter
 public class ToolCallAgent extends ReActAgent {
 
-    // 可用的工具
+    private static final int MAX_SAME_TOOL_CALL_ROUNDS = 3;
+    private static final int MAX_HISTORY_MESSAGES = 12;
+    private static final String DEFAULT_NEXT_STEP_PROMPT =
+            "Please provide the final answer based on tool results. Call tools again only if key info is still missing.";
+
     private final Object[] availableTools;
-
-    // 工具调用管理者
     private final ToolCallingManager toolCallingManager;
-
-    // 禁用 Spring AI 内置的工具调用机制，自己维护选项和消息上下文
     private final ChatOptions chatOptions;
 
-    /**
-     * 构造函数
-     * 
-     * @param tools 工具数组，可以是任何带 @Tool 注解的对象
-     */
     public ToolCallAgent(String agentId, AgentConfig config, ChatClient chatClient, Object[] tools) {
         super(agentId, config, chatClient);
-        this.availableTools = tools != null ? tools : new Object[0];
+        this.availableTools = normalizeTools(tools);
         this.toolCallingManager = ToolCallingManager.builder().build();
-        // 禁用 Spring AI 内置的工具调用机制，自己维护选项和消息上下文
-        this.chatOptions = DashScopeChatOptions.builder()
-                .withInternalToolExecutionEnabled(false)
+        this.chatOptions = ToolCallingChatOptions.builder()
+                .internalToolExecutionEnabled(false)
                 .build();
     }
 
-    /**
-     * 思考：调用 LLM + 工具
-     */
+    private Object[] normalizeTools(Object[] tools) {
+        if (tools == null || tools.length == 0) {
+            return new Object[0];
+        }
+        if (tools.length == 1) {
+            Object first = tools[0];
+            if (first instanceof List<?> list) {
+                return list.toArray();
+            }
+            if (first instanceof Object[] nestedArray) {
+                return nestedArray;
+            }
+        }
+        return tools;
+    }
+
     @Override
     protected ThinkResult think(AgentContext context) {
         try {
-            // 构建消息列表
             List<Message> messages = buildMessages(context);
-            
-            // 调试日志：打印消息结构
+
             if (log.isDebugEnabled()) {
                 log.debug("=== 发送给 LLM 的消息列表 ===");
                 for (int i = 0; i < messages.size(); i++) {
                     Message msg = messages.get(i);
                     String type = msg.getClass().getSimpleName();
-                    String preview = msg.getText() != null && msg.getText().length() > 50
-                        ? msg.getText().substring(0, 50) + "..."
-                        : msg.getText();
-                    log.debug("[{}] {} - {}", i, type, preview);
                     
-                    if (msg instanceof AssistantMessage assistantMsg && assistantMsg.getToolCalls() != null) {
-                        log.debug("    ToolCalls: {}", assistantMsg.getToolCalls().size());
+                    // 对于 UserMessage，判断是否为 system-prompt
+                    if (msg instanceof UserMessage) {
+                        String text = msg.getText();
+                        // 如果是第一条消息且内容较长，很可能是 system-prompt，不输出详细内容
+                        if (i == 0 && text != null && text.length() > 200) {
+                            log.debug("[{}] {} - [System Prompt, {} chars]", i, type, text.length());
+                        } else {
+                            String preview = text != null && text.length() > 80 ? text.substring(0, 80) + "..." : text;
+                            log.debug("[{}] {} - {}", i, type, preview);
+                        }
+                    } else if (msg instanceof AssistantMessage) {
+                        AssistantMessage assistant = (AssistantMessage) msg;
+                        if (assistant.getToolCalls() != null && !assistant.getToolCalls().isEmpty()) {
+                            log.debug("[{}] {} - [ToolCalls: {}]", i, type, assistant.getToolCalls().size());
+                        } else {
+                            String text = msg.getText();
+                            String preview = text != null && text.length() > 80 ? text.substring(0, 80) + "..." : text;
+                            log.debug("[{}] {} - {}", i, type, preview);
+                        }
+                    } else {
+                        // ToolResponseMessage 等其他消息类型
+                        log.debug("[{}] {}", i, type);
                     }
                 }
             }
-            
+
             Prompt prompt = new Prompt(messages, this.chatOptions);
-            
-            // 调用 LLM（带工具）
             ChatResponse response = getChatClient()
                     .prompt(prompt)
                     .tools(availableTools)
                     .call()
                     .chatResponse();
-            
+
             AssistantMessage message = response.getResult().getOutput();
-            
-            // 解析响应
-            boolean hasToolCalls = message.getToolCalls() != null && !message.getToolCalls().isEmpty();
-            boolean isFinished = !hasToolCalls && isTaskComplete(message.getText(), context);
-            
-            // 保存工具调用信息到上下文（不立即添加到消息历史）
+            List<AssistantMessage.ToolCall> toolCalls =
+                    message.getToolCalls() == null ? List.of() : message.getToolCalls();
+
+            boolean hasToolCalls = !toolCalls.isEmpty();
+            boolean isFinished = !hasToolCalls;
+
             if (hasToolCalls) {
+                if (isRepeatedToolCallLoop(context, toolCalls)) {
+                    log.warn("Agent [{}] detected repeated tool-call loop, force stop", getAgentId());
+                    return ThinkResult.builder()
+                            .reasoning("Repeated tool-call loop detected. Stop and summarize with current data.")
+                            .nextAction("terminate_loop")
+                            .finished(true)
+                            .metadata(Map.of("toolCalls", toolCalls))
+                            .build();
+                }
+
                 context.set("toolCallResponse", response);
-                // 将 AssistantMessage 添加到消息历史
                 context.addMessage(message);
-                log.debug("添加 AssistantMessage (with {} tool calls) 到消息历史", message.getToolCalls().size());
+                log.debug("Added AssistantMessage with {} tool calls to history", toolCalls.size());
             } else {
-                // 没有工具调用时，也添加到消息历史
                 context.addMessage(message);
-                log.debug("添加 AssistantMessage (no tool calls) 到消息历史");
+                log.debug("Added AssistantMessage without tool calls to history");
             }
-            
+
             return ThinkResult.builder()
                     .reasoning(message.getText())
-                    .nextAction(hasToolCalls ? "调用工具: " + message.getToolCalls().size() + " 个" : "完成任务")
+                    .nextAction(hasToolCalls ? "call_tools" : "finish")
                     .finished(isFinished)
-                    .metadata(Map.of("toolCalls", message.getToolCalls() != null ? message.getToolCalls() : List.of()))
+                    .metadata(Map.of("toolCalls", toolCalls))
                     .build();
-                    
         } catch (Exception e) {
-            log.error("智能体 [{}] 思考过程出错", getAgentId(), e);
+            log.error("Agent [{}] think stage failed", getAgentId(), e);
             return ThinkResult.builder()
-                    .reasoning("思考失败: " + e.getMessage())
+                    .reasoning("Think failed: " + e.getMessage())
+                    .nextAction("terminate")
                     .finished(true)
+                    .metadata(Map.of("toolCalls", List.of()))
                     .build();
         }
     }
 
-    /**
-     * 行动：执行工具调用
-     * 
-     * 关键流程：
-     * 1. 从 context 中获取 toolCallResponse（包含 AssistantMessage with tool_calls）
-     * 2. 使用 ToolCallingManager 执行工具调用
-     * 3. ToolCallingManager 会返回完整的对话历史（包含 ToolResponseMessage）
-     * 4. 用返回的完整历史替换 context 中的消息历史
-     */
     @Override
     protected ActResult act(AgentContext context, ThinkResult thinkResult) {
         if (thinkResult.isFinished()) {
             return ActResult.builder()
-                    .action("无需行动")
-                    .observation("任务已完成")
+                    .action("noop")
+                    .observation("task_finished")
                     .terminated(true)
                     .build();
         }
-        
-        // 获取工具调用列表
-        @SuppressWarnings("unchecked")
-        List<AssistantMessage.ToolCall> toolCalls = 
-            (List<AssistantMessage.ToolCall>) thinkResult.getMetadata().get("toolCalls");
-        
-        if (toolCalls == null || toolCalls.isEmpty()) {
+
+        List<AssistantMessage.ToolCall> toolCalls = extractToolCalls(thinkResult);
+        if (toolCalls.isEmpty()) {
             return ActResult.builder()
-                    .action("无工具调用")
-                    .observation("继续思考")
-                    .terminated(false)
+                    .action("no_tool_calls")
+                    .observation("No executable tool calls found in think metadata")
+                    .terminated(true)
                     .build();
         }
-        
-        // 获取保存的响应
+
         ChatResponse toolCallResponse = context.get("toolCallResponse", ChatResponse.class);
         if (toolCallResponse == null) {
             return ActResult.builder()
-                    .action("工具调用失败")
-                    .observation("未找到工具调用响应")
-                    .terminated(false)
+                    .action("tool_call_failed")
+                    .observation("Missing tool-call response in context")
+                    .terminated(true)
                     .build();
         }
-        
-        // 执行工具调用
-        StringBuilder actionLog = new StringBuilder();
-        StringBuilder observationLog = new StringBuilder();
-        
+
         try {
-            // 构建 Prompt（使用当前的消息历史）
             List<Message> currentMessages = new ArrayList<>(context.getMessageHistory());
             Prompt prompt = new Prompt(currentMessages, this.chatOptions);
-            
-            // 执行工具调用
-            // ToolCallingManager 会：
-            // 1. 执行所有工具调用
-            // 2. 创建 ToolResponseMessage
-            // 3. 返回完整的对话历史（原消息 + ToolResponseMessage）
             ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, toolCallResponse);
-            
-            // 获取工具响应消息（最后一条）
+
             List<Message> updatedHistory = toolExecutionResult.conversationHistory();
-            ToolResponseMessage toolResponseMessage = (ToolResponseMessage) CollUtil.getLast(updatedHistory);
-            
-            // 只添加 ToolResponseMessage 到消息历史
-            // 注意：AssistantMessage 已经在 think() 方法中添加过了
-            context.addMessage(toolResponseMessage);
-            
-            // 判断是否调用了终止工具
-            boolean terminateToolCalled = toolResponseMessage.getResponses().stream()
-                    .anyMatch(response -> response.name().equals("doTerminate"));
-            
-            // 记录工具调用结果
-            for (var response : toolResponseMessage.getResponses()) {
-                actionLog.append(String.format("调用工具: %s\n", response.name()));
-                observationLog.append(String.format("工具 %s 返回: %s\n", response.name(), response.responseData()));
+            Message lastMessage = CollUtil.getLast(updatedHistory);
+            if (!(lastMessage instanceof ToolResponseMessage)) {
+                return ActResult.builder()
+                        .action("tool_call_failed")
+                        .observation("Tool execution did not produce ToolResponseMessage")
+                        .terminated(true)
+                        .build();
             }
-            
+
+            ToolResponseMessage toolResponseMessage = (ToolResponseMessage) lastMessage;
+            if (!isToolResponseComplete(toolCalls, toolResponseMessage)) {
+                return ActResult.builder()
+                        .action("tool_response_incomplete")
+                        .observation("ToolResponseMessage does not cover all tool_call_id values")
+                        .terminated(true)
+                        .build();
+            }
+
+            context.addMessage(toolResponseMessage);
+            trimMessageHistory(context);
+
+            StringBuilder actionLog = new StringBuilder();
+            StringBuilder observationLog = new StringBuilder();
+            boolean terminateToolCalled = false;
+
+            for (ToolResponseMessage.ToolResponse response : toolResponseMessage.getResponses()) {
+                actionLog.append("tool=").append(response.name()).append("\n");
+                observationLog.append("tool_result[").append(response.name()).append("]=")
+                        .append(response.responseData()).append("\n");
+                if ("doTerminate".equals(response.name())) {
+                    terminateToolCalled = true;
+                }
+            }
+
             return ActResult.builder()
                     .action(actionLog.toString())
                     .observation(observationLog.toString())
                     .terminated(terminateToolCalled)
                     .build();
-                    
         } catch (Exception e) {
-            log.error("工具调用失败", e);
+            log.error("Tool execution failed", e);
             return ActResult.builder()
-                    .action("工具调用异常")
-                    .observation("错误: " + e.getMessage())
-                    .terminated(false)
+                    .action("tool_call_exception")
+                    .observation("error=" + e.getMessage())
+                    .terminated(true)
                     .build();
         }
     }
-    
-    /**
-     * 构建消息列表
-     * 
-     * 关键规则：
-     * 1. 系统提示词必须在最前面
-     * 2. 用户输入在系统提示词之后
-     * 3. 历史消息（包含 AssistantMessage + ToolResponseMessage）必须保持完整
-     * 4. 不能在 AssistantMessage(with tool_calls) 和 ToolResponseMessage 之间插入其他消息
-     */
+
     private List<Message> buildMessages(AgentContext context) {
         List<Message> messages = new ArrayList<>();
-        
-        // 1. 添加系统提示词（作为 UserMessage）
-        if (getConfig().getSystemPrompt() != null) {
-            messages.add(new UserMessage(getConfig().getSystemPrompt()));
+        List<Message> sanitizedHistory = sanitizeMessageHistory(context.getMessageHistory());
+
+        if (sanitizedHistory.size() != context.getMessageHistory().size()) {
+            context.getMessageHistory().clear();
+            context.getMessageHistory().addAll(sanitizedHistory);
         }
-        
-        // 2. 添加用户输入（仅在第一次调用时添加）
-        if (context.getUserPrompt() != null && context.getMessageHistory().isEmpty()) {
+
+        if (hasText(getConfig().getSystemPrompt())) {
+            messages.add(new SystemMessage(getConfig().getSystemPrompt()));
+        }
+
+        if (hasText(context.getUserPrompt())) {
             messages.add(new UserMessage(context.getUserPrompt()));
         }
-        
-        // 3. 添加历史消息（包含完整的 Assistant + Tool 对话）
-        messages.addAll(context.getMessageHistory());
-        
-        // 4. 添加下一步提示词（仅在没有待处理的工具调用时添加）
-        // 注意：不能在 AssistantMessage(with tool_calls) 后面添加 UserMessage
-        if (getConfig().getNextStepPrompt() != null && 
-            !context.getMessageHistory().isEmpty() &&
-            !hasUnresolvedToolCalls(context.getMessageHistory())) {
-            messages.add(new UserMessage(getConfig().getNextStepPrompt()));
+
+        messages.addAll(sanitizedHistory);
+
+        if (!sanitizedHistory.isEmpty() && !hasUnresolvedToolCalls(sanitizedHistory)) {
+            String nextStepPrompt = hasText(getConfig().getNextStepPrompt())
+                    ? getConfig().getNextStepPrompt()
+                    : DEFAULT_NEXT_STEP_PROMPT;
+            messages.add(new UserMessage(nextStepPrompt));
         }
-        
+
         return messages;
     }
-    
-    /**
-     * 检查消息历史中是否有未解决的工具调用
-     * 
-     * 规则：如果最后一条消息是 AssistantMessage 且包含 tool_calls，
-     * 则认为有未解决的工具调用
-     */
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private boolean isRepeatedToolCallLoop(AgentContext context, List<AssistantMessage.ToolCall> toolCalls) {
+        StringBuilder signatureBuilder = new StringBuilder();
+        for (AssistantMessage.ToolCall toolCall : toolCalls) {
+            signatureBuilder.append(toolCall.name())
+                    .append("::")
+                    .append(String.valueOf(toolCall.arguments()))
+                    .append("||");
+        }
+        String signature = signatureBuilder.toString();
+
+        String lastSignature = context.get("lastToolCallSignature", String.class);
+        Integer sameCount = context.get("sameToolCallCount", Integer.class);
+        int nextCount = signature.equals(lastSignature) ? (sameCount == null ? 1 : sameCount + 1) : 1;
+
+        context.set("lastToolCallSignature", signature);
+        context.set("sameToolCallCount", nextCount);
+
+        return nextCount >= MAX_SAME_TOOL_CALL_ROUNDS;
+    }
+
+    private void trimMessageHistory(AgentContext context) {
+        List<Message> history = context.getMessageHistory();
+        if (history.size() <= MAX_HISTORY_MESSAGES) {
+            return;
+        }
+        int beforeSize = history.size();
+        int removeCount = beforeSize - MAX_HISTORY_MESSAGES;
+        history.subList(0, removeCount).clear();
+        log.debug("Trim history: {} -> {}", beforeSize, history.size());
+    }
+
+    private List<Message> sanitizeMessageHistory(List<Message> history) {
+        List<Message> sanitized = new ArrayList<>();
+
+        for (int i = 0; i < history.size(); i++) {
+            Message current = history.get(i);
+
+            if (current instanceof AssistantMessage) {
+                AssistantMessage assistant = (AssistantMessage) current;
+                List<AssistantMessage.ToolCall> toolCalls = assistant.getToolCalls();
+                if (toolCalls != null && !toolCalls.isEmpty()) {
+                    if (i + 1 < history.size() && history.get(i + 1) instanceof ToolResponseMessage) {
+                        ToolResponseMessage toolResponse = (ToolResponseMessage) history.get(i + 1);
+                        if (isToolResponseComplete(toolCalls, toolResponse)) {
+                            sanitized.add(current);
+                            sanitized.add(toolResponse);
+                        } else {
+                            log.warn("Drop mismatched assistant/tool response pair at index {}", i);
+                        }
+                        i++;
+                    } else {
+                        log.warn("Drop unresolved assistant tool_calls at index {}", i);
+                    }
+                    continue;
+                }
+            }
+
+            if (current instanceof ToolResponseMessage) {
+                log.warn("Drop orphan tool response at index {}", i);
+                continue;
+            }
+
+            sanitized.add(current);
+        }
+
+        return sanitized;
+    }
+
     private boolean hasUnresolvedToolCalls(List<Message> messageHistory) {
-        if (messageHistory.isEmpty()) {
-            return false;
+        for (int i = 0; i < messageHistory.size(); i++) {
+            Message current = messageHistory.get(i);
+
+            if (current instanceof AssistantMessage) {
+                AssistantMessage assistant = (AssistantMessage) current;
+                List<AssistantMessage.ToolCall> toolCalls = assistant.getToolCalls();
+                if (toolCalls != null && !toolCalls.isEmpty()) {
+                    if (i + 1 >= messageHistory.size()) {
+                        return true;
+                    }
+                    Message next = messageHistory.get(i + 1);
+                    if (!(next instanceof ToolResponseMessage)) {
+                        return true;
+                    }
+                    if (!isToolResponseComplete(toolCalls, (ToolResponseMessage) next)) {
+                        return true;
+                    }
+                    i++;
+                }
+            } else if (current instanceof ToolResponseMessage) {
+                return true;
+            }
         }
-        
-        Message lastMessage = messageHistory.get(messageHistory.size() - 1);
-        if (lastMessage instanceof AssistantMessage assistantMessage) {
-            return assistantMessage.getToolCalls() != null && 
-                   !assistantMessage.getToolCalls().isEmpty();
-        }
-        
         return false;
     }
-    
-    /**
-     * 判断任务是否完成（子类可重写）
-     */
-    protected boolean isTaskComplete(String response, AgentContext context) {
-        if (response == null) return false;
-        String lowerResponse = response.toLowerCase();
-        return lowerResponse.contains("任务完成") || 
-               lowerResponse.contains("已完成") ||
-               lowerResponse.contains("完成了");
+
+    private boolean isToolResponseComplete(List<AssistantMessage.ToolCall> toolCalls,
+                                           ToolResponseMessage toolResponseMessage) {
+        if (toolCalls == null || toolCalls.isEmpty()) {
+            return true;
+        }
+        if (toolResponseMessage == null || toolResponseMessage.getResponses() == null) {
+            return false;
+        }
+
+        Set<String> expectedIds = new HashSet<>();
+        for (AssistantMessage.ToolCall toolCall : toolCalls) {
+            if (toolCall != null && toolCall.id() != null) {
+                expectedIds.add(toolCall.id());
+            }
+        }
+
+        if (expectedIds.isEmpty()) {
+            return !toolResponseMessage.getResponses().isEmpty();
+        }
+
+        Set<String> actualIds = new HashSet<>();
+        for (ToolResponseMessage.ToolResponse response : toolResponseMessage.getResponses()) {
+            if (response != null && response.id() != null) {
+                actualIds.add(response.id());
+            }
+        }
+
+        return actualIds.containsAll(expectedIds);
     }
 
+    @SuppressWarnings("unchecked")
+    private List<AssistantMessage.ToolCall> extractToolCalls(ThinkResult thinkResult) {
+        if (thinkResult.getMetadata() == null) {
+            return List.of();
+        }
+        Object value = thinkResult.getMetadata().get("toolCalls");
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
 
-    /**
-     * 获取智能体能力描述
-     * 子类应该重写此方法提供具体的能力描述
-     */
+        List<AssistantMessage.ToolCall> result = new ArrayList<>();
+        for (Object item : list) {
+            if (item instanceof AssistantMessage.ToolCall) {
+                result.add((AssistantMessage.ToolCall) item);
+            }
+        }
+        return result;
+    }
+
+    protected boolean isTaskComplete(String response, AgentContext context) {
+        if (response == null) {
+            return false;
+        }
+        String lower = response.toLowerCase();
+        return lower.contains("task complete") ||
+                lower.contains("completed") ||
+                lower.contains("done");
+    }
+
     @Override
     public AgentCapability getCapability() {
         return AgentCapability.builder()
                 .agentId(getAgentId())
                 .name(getConfig().getName())
                 .description(getConfig().getDescription())
-                .skills(List.of(
-                    "工具调用",
-                    "多轮对话",
-                    "ReAct 推理",
-                    "流式输出"
-                ))
-                .domains(List.of("通用"))
+                .skills(List.of("tool-calling", "multi-turn", "react"))
+                .domains(List.of("general"))
                 .tools(List.of())
                 .build();
     }
-
 }

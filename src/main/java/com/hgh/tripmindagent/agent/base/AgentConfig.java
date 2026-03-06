@@ -79,4 +79,22 @@ public class AgentConfig {
             throw new IllegalArgumentException("最大步数和超时时间必须大于0");
         }
     }
+    
+    /**
+     * 自定义 toString 方法，避免输出敏感的 systemPrompt
+     */
+    @Override
+    public String toString() {
+        return "AgentConfig{" +
+                "name='" + name + '\'' +
+                ", description='" + description + '\'' +
+                ", systemPrompt=[" + (systemPrompt != null ? systemPrompt.length() + " chars]" : "null]") +
+                ", nextStepPrompt=[" + (nextStepPrompt != null ? nextStepPrompt.length() + " chars]" : "null]") +
+                ", maxSteps=" + maxSteps +
+                ", timeout=" + timeout +
+                ", enabled=" + enabled +
+                ", streamEnabled=" + streamEnabled +
+                ", metadata=" + metadata +
+                '}';
+    }
 }

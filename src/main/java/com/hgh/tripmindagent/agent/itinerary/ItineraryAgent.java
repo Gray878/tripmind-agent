@@ -34,7 +34,7 @@ public class ItineraryAgent extends ToolCallAgent {
     private VectorStore vectorStore;
     
     public ItineraryAgent(
-            @Qualifier("dashscopeChatModel") ChatModel chatModel, 
+            @Qualifier("openaiChatModel") ChatModel chatModel, 
             @Autowired(required = false) VectorStore vectorStore,
             com.hgh.tripmindagent.config.AgentConfigProperties configProperties) {
         super("itinerary",
