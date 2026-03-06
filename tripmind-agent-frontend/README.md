@@ -1,194 +1,109 @@
-# TripMind 前端项目
+<a href="https://demo-nextjs-with-supabase.vercel.app/">
+  <img alt="Next.js and Supabase Starter Kit - the fastest way to build apps with Next.js and Supabase" src="https://demo-nextjs-with-supabase.vercel.app/opengraph-image.png">
+  <h1 align="center">Next.js and Supabase Starter Kit</h1>
+</a>
 
-TripMind 智能旅游规划平台的前端应用，基于 Vue 3 + Vite 构建。
+<p align="center">
+ The fastest way to build apps with Next.js and Supabase
+</p>
 
-## 技术栈
+<p align="center">
+  <a href="#features"><strong>Features</strong></a> ·
+  <a href="#demo"><strong>Demo</strong></a> ·
+  <a href="#deploy-to-vercel"><strong>Deploy to Vercel</strong></a> ·
+  <a href="#clone-and-run-locally"><strong>Clone and run locally</strong></a> ·
+  <a href="#feedback-and-issues"><strong>Feedback and issues</strong></a>
+  <a href="#more-supabase-examples"><strong>More Examples</strong></a>
+</p>
+<br/>
 
-- **框架**: Vue 3
-- **构建工具**: Vite 4
-- **路由**: Vue Router 4
-- **HTTP 客户端**: Axios
-- **样式**: 原生 CSS（白色调简洁设计）
+## Features
 
-## 设计理念
+- Works across the entire [Next.js](https://nextjs.org) stack
+  - App Router
+  - Pages Router
+  - Proxy
+  - Client
+  - Server
+  - It just works!
+- supabase-ssr. A package to configure Supabase Auth to use cookies
+- Password-based authentication block installed via the [Supabase UI Library](https://supabase.com/ui/docs/nextjs/password-based-auth)
+- Styling with [Tailwind CSS](https://tailwindcss.com)
+- Components with [shadcn/ui](https://ui.shadcn.com/)
+- Optional deployment with [Supabase Vercel Integration and Vercel deploy](#deploy-your-own)
+  - Environment variables automatically assigned to Vercel project
 
-- 纯白色调，简洁清爽
-- 无表情图标，无渐变色
-- 注重可读性和用户体验
-- 响应式设计，适配多端
+## Demo
 
-## 项目结构
+You can view a fully working demo at [demo-nextjs-with-supabase.vercel.app](https://demo-nextjs-with-supabase.vercel.app/).
 
-```
-tripmind-agent-frontend/
-├── public/              # 静态资源
-├── src/
-│   ├── api/            # API 接口
-│   ├── assets/         # 资源文件
-│   ├── components/     # 公共组件
-│   ├── router/         # 路由配置
-│   ├── views/          # 页面组件
-│   ├── App.vue         # 根组件
-│   ├── main.js         # 入口文件
-│   └── style.css       # 全局样式
-├── index.html          # HTML 模板
-├── package.json        # 项目配置
-└── vite.config.js      # Vite 配置
-```
+## Deploy to Vercel
 
-## 开发指南
+Vercel deployment will guide you through creating a Supabase account and project.
 
-### 安装依赖
+After installation of the Supabase integration, all relevant environment variables will be assigned to the project so the deployment is fully functioning.
 
-```bash
-npm install
-```
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fnext.js%2Ftree%2Fcanary%2Fexamples%2Fwith-supabase&project-name=nextjs-with-supabase&repository-name=nextjs-with-supabase&demo-title=nextjs-with-supabase&demo-description=This+starter+configures+Supabase+Auth+to+use+cookies%2C+making+the+user%27s+session+available+throughout+the+entire+Next.js+app+-+Client+Components%2C+Server+Components%2C+Route+Handlers%2C+Server+Actions+and+Middleware.&demo-url=https%3A%2F%2Fdemo-nextjs-with-supabase.vercel.app%2F&external-id=https%3A%2F%2Fgithub.com%2Fvercel%2Fnext.js%2Ftree%2Fcanary%2Fexamples%2Fwith-supabase&demo-image=https%3A%2F%2Fdemo-nextjs-with-supabase.vercel.app%2Fopengraph-image.png)
 
-### 启动开发服务器
+The above will also clone the Starter kit to your GitHub, you can clone that locally and develop locally.
 
-```bash
-npm run dev
-```
+If you wish to just develop locally and not deploy to Vercel, [follow the steps below](#clone-and-run-locally).
 
-访问 http://localhost:5173
+## Clone and run locally
 
-### 构建生产版本
+1. You'll first need a Supabase project which can be made [via the Supabase dashboard](https://database.new)
 
-```bash
-npm run build
-```
+2. Create a Next.js app using the Supabase Starter template npx command
 
-### 预览生产构建
+   ```bash
+   npx create-next-app --example with-supabase with-supabase-app
+   ```
 
-```bash
-npm run preview
-```
+   ```bash
+   yarn create next-app --example with-supabase with-supabase-app
+   ```
 
-## 功能特性
+   ```bash
+   pnpm create next-app --example with-supabase with-supabase-app
+   ```
 
-### 已实现
+3. Use `cd` to change into the app's directory
 
-- 旅游规划表单输入
-- 流式 SSE 实时进度展示
-- Markdown 格式结果渲染
-- 复制结果到剪贴板
-- 响应式布局设计
+   ```bash
+   cd with-supabase-app
+   ```
 
-### 待实现
+4. Rename `.env.example` to `.env.local` and update the following:
 
-- PDF 下载功能
-- 历史规划查询
-- 用户认证系统
-- 规划分享功能
+  ```env
+  NEXT_PUBLIC_SUPABASE_URL=[INSERT SUPABASE PROJECT URL]
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=[INSERT SUPABASE PROJECT API PUBLISHABLE OR ANON KEY]
+  ```
+  > [!NOTE]
+  > This example uses `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, which refers to Supabase's new **publishable** key format.
+  > Both legacy **anon** keys and new **publishable** keys can be used with this variable name during the transition period. Supabase's dashboard may show `NEXT_PUBLIC_SUPABASE_ANON_KEY`; its value can be used in this example.
+  > See the [full announcement](https://github.com/orgs/supabase/discussions/29260) for more information.
 
-## API 接口
+  Both `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` can be found in [your Supabase project's API settings](https://supabase.com/dashboard/project/_?showConnect=true)
 
-### 后端服务地址
+5. You can now run the Next.js local development server:
 
-- 开发环境: http://localhost:8123/api
-- 生产环境: /api（相对路径）
+   ```bash
+   npm run dev
+   ```
 
-### 主要接口
+   The starter kit should now be running on [localhost:3000](http://localhost:3000/).
 
-- `POST /trip/plan/stream` - 创建旅游规划（流式）
-- `POST /trip/plan` - 创建旅游规划（同步）
-- `GET /trip/plan/{id}` - 获取规划详情
-- `GET /trip/plan/{id}/pdf` - 下载 PDF
+6. This template comes with the default shadcn/ui style initialized. If you instead want other ui.shadcn styles, delete `components.json` and [re-install shadcn/ui](https://ui.shadcn.com/docs/installation/next)
 
-## 环境变量
+> Check out [the docs for Local Development](https://supabase.com/docs/guides/getting-started/local-development) to also run Supabase locally.
 
-在项目根目录创建 `.env` 文件：
+## Feedback and issues
 
-```env
-# API 基础地址（可选，默认使用代码中的配置）
-VITE_API_BASE_URL=http://localhost:8123/api
-```
+Please file feedback and issues over on the [Supabase GitHub org](https://github.com/supabase/supabase/issues/new/choose).
 
-## Docker 部署
+## More Supabase examples
 
-### 构建镜像
-
-```bash
-docker build -t tripmind-frontend .
-```
-
-### 运行容器
-
-```bash
-docker run -p 80:80 tripmind-frontend
-```
-
-## 浏览器支持
-
-- Chrome >= 90
-- Firefox >= 88
-- Safari >= 14
-- Edge >= 90
-
-## 开发规范
-
-### 代码风格
-
-- 使用 2 空格缩进
-- 组件名使用 PascalCase
-- 文件名使用 kebab-case
-- 遵循 Vue 3 Composition API 风格
-
-### 样式规范
-
-- 使用白色调为主色调
-- 避免使用渐变色
-- 不使用表情图标
-- 保持简洁清爽的设计风格
-
-### 提交规范
-
-```
-feat: 新功能
-fix: 修复问题
-docs: 文档更新
-style: 代码格式调整
-refactor: 代码重构
-test: 测试相关
-chore: 构建/工具链相关
-```
-
-## 常见问题
-
-### 1. 开发环境跨域问题
-
-在 `vite.config.js` 中配置代理：
-
-```javascript
-export default {
-  server: {
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8123',
-        changeOrigin: true
-      }
-    }
-  }
-}
-```
-
-### 2. SSE 连接失败
-
-确保后端服务已启动，并检查 API 地址配置是否正确。
-
-### 3. 构建后静态资源 404
-
-检查 `vite.config.js` 中的 `base` 配置是否正确。
-
-## 贡献指南
-
-欢迎提交 Issue 和 Pull Request！
-
-## 许可证
-
-MIT License
-
-## 联系方式
-
-- 项目地址: https://github.com/tripmind/tripmind-agent
-- 问题反馈: https://github.com/tripmind/tripmind-agent/issues
+- [Next.js Subscription Payments Starter](https://github.com/vercel/nextjs-subscription-payments)
+- [Cookie-based Auth and the Next.js 13 App Router (free course)](https://youtube.com/playlist?list=PL5S4mPUpp4OtMhpnp93EFSo42iQ40XjbF)
+- [Supabase Auth and the Next.js App Router](https://github.com/supabase/supabase/tree/master/examples/auth/nextjs)

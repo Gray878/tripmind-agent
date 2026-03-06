@@ -16,13 +16,14 @@ TripMind 是一个基于多智能体架构的智能旅游规划平台，通过�
 - 🌤️ **实时天气查询**：查询目的地天气，提供穿衣建议
 - 🔍 **景点调研**：搜索热门景点、美食、交通信息
 - 📄 **PDF 导出**：生成精美的旅游规划 PDF 文档
+- 💬 **实时对话**：支持流式输出的智能对话体验
 
 ### 系统架构
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    用户交互层                              │
-│              (REST API + SSE 流式输出)                     │
+│         (Next.js Frontend + REST API + SSE)              │
 └─────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────┐
@@ -53,7 +54,7 @@ TripMind 是一个基于多智能体架构的智能旅游规划平台，通过�
 ### 后端技术
 
 - **框架**：Spring Boot 3.x + Spring AI
-- **AI 模型**：通义千问 / DeepSeek
+- **AI 模型**：通义千问 / DeepSeek / OpenAI 兼容模型
 - **向量数据库**：PgVector（可选）
 - **缓存**：Caffeine
 - **监控**：Micrometer + Prometheus
@@ -62,11 +63,12 @@ TripMind 是一个基于多智能体架构的智能旅游规划平台，通过�
 
 ### 前端技术
 
-- **框架**：Vue 3 + Vite
-- **UI 库**：Element Plus（待集成）
-- **状态管理**：Pinia（待集成）
-- **HTTP 客户端**：Axios
+- **框架**：Next.js 15 + React 19
+- **UI 库**：shadcn/ui + Tailwind CSS
+- **认证**：Supabase Auth
 - **实时通信**：Server-Sent Events (SSE)
+- **图标**：Lucide Icons
+- **类型安全**：TypeScript
 
 ## 📦 项目结构
 
@@ -75,36 +77,42 @@ tripmind-agent/
 ├── docs/                                    # 项目文档
 │   ├── TripMind多智能体架构设计方案.md        # 架构设计文档
 │   ├── TODO.md                              # 开发任务清单
-│   └── AI旅游规划多智能体.md                  # 需求分析文档
+│   └── API文档说明.md                        # API 接口文档
 ├── src/
 │   ├── main/
 │   │   ├── java/com/hgh/tripmindagent/
 │   │   │   ├── agent/                       # 智能体层
-│   │   │   │   ├── BaseAgent.java           # 智能体基类
-│   │   │   │   ├── ReActAgent.java          # ReAct 模式智能体
-│   │   │   │   └── ToolCallAgent.java       # 工具调用型智能体
+│   │   │   │   ├── base/                    # 基础类
+│   │   │   │   ├── orchestrator/            # 编排器
+│   │   │   │   ├── research/                # 调研智能体
+│   │   │   │   ├── budget/                  # 预算智能体
+│   │   │   │   ├── weather/                 # 天气智能体
+│   │   │   │   └── itinerary/               # 行程智能体
+│   │   │   ├── infrastructure/              # 基础设施
+│   │   │   │   ├── registry/                # 注册中心
+│   │   │   │   └── messaging/               # 消息总线
 │   │   │   ├── tools/                       # 工具层
-│   │   │   │   ├── WebSearchTool.java       # 联网搜索
-│   │   │   │   ├── WebScrapingTool.java     # 网页抓取
-│   │   │   │   ├── PDFGenerationTool.java   # PDF 生成
-│   │   │   │   └── ...                      # 其他工具
 │   │   │   ├── advisor/                     # 拦截器/增强器
-│   │   │   ├── chatmemory/                  # 对话记忆
 │   │   │   ├── config/                      # 配置管理
 │   │   │   ├── controller/                  # 控制器层
-│   │   │   ├── rag/                         # RAG 相关
-│   │   │   └── constant/                    # 常量定义
+│   │   │   └── rag/                         # RAG 相关
 │   │   └── resources/
 │   │       ├── application.yml              # 应用配置
+│   │       ├── application-local.yml        # 本地环境配置
 │   │       └── application-prod.yml         # 生产环境配置
 │   └── test/                                # 测试代码
 ├── tripmind-agent-frontend/                 # 前端项目
-│   ├── src/
-│   │   ├── views/                           # 页面组件
-│   │   ├── components/                      # 通用组件
-│   │   ├── router/                          # 路由配置
-│   │   ├── api/                             # API 接口
-│   │   └── App.vue                          # 根组件
+│   ├── app/                                 # Next.js App Router
+│   │   ├── page.tsx                         # 首页
+│   │   ├── chat/                            # 对话页面
+│   │   ├── auth/                            # 认证页面
+│   │   └── layout.tsx                       # 根布局
+│   ├── components/                          # 组件
+│   │   ├── ui/                              # UI 组件
+│   │   ├── hero.tsx                         # Hero 组件
+│   │   └── theme-switcher.tsx               # 主题切换
+│   ├── lib/                                 # 工具库
+│   │   └── supabase/                        # Supabase 客户端
 │   └── package.json
 ├── pom.xml                                  # Maven 配置
 └── README.md                                # 项目说明
@@ -116,7 +124,7 @@ tripmind-agent/
 
 - JDK 21+
 - Maven 3.8+
-- Node.js 16+
+- Node.js 18+
 - PostgreSQL 14+（可选，用于 PgVector）
 
 ### 后端启动
@@ -130,33 +138,50 @@ cd tripmind-agent
 
 2. **配置 API Key**
 
-编辑 `src/main/resources/application.yml`，配置你的 AI 模型 API Key：
+编辑 `src/main/resources/application-local.yml`，配置你的 AI 模型 API Key：
 
 ```yaml
 spring:
   ai:
     dashscope:
-      api-key: your-api-key-here
+      api-key: your-dashscope-api-key
+    openai:
+      api-key: your-openai-api-key
+      base-url: https://api.openai.com  # 或其他兼容的 API 地址
 ```
 
 3. **启动后端**
 
 ```bash
-mvn spring-boot:run
+mvn spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
 后端服务将在 `http://localhost:8123` 启动。
 
 ### 前端启动
 
-1. **安装依赖**
+1. **进入前端目录**
 
 ```bash
 cd tripmind-agent-frontend
+```
+
+2. **配置环境变量**
+
+复制 `.env.example` 为 `.env.local`，并配置 Supabase 相关信息：
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-supabase-key
+```
+
+3. **安装依赖**
+
+```bash
 npm install
 ```
 
-2. **启动开发服务器**
+4. **启动开发服务器**
 
 ```bash
 npm run dev
@@ -167,8 +192,32 @@ npm run dev
 ### 访问应用
 
 - 前端页面：http://localhost:3000
+- 对话页面：http://localhost:3000/chat
 - API 文档：http://localhost:8123/doc.html
 - 健康检查：http://localhost:8123/api/health
+
+## 🎨 前端特性
+
+### 页面设计
+
+- **首页**：现代化的 Hero 区域，带有搜索框和快速标签
+- **对话页面**：实时流式对话，支持多轮交互
+- **主题切换**：支持亮色/暗色模式
+- **响应式设计**：适配桌面和移动设备
+
+### UI 组件
+
+- 使用 shadcn/ui 组件库
+- Tailwind CSS 样式系统
+- Lucide Icons 图标库
+- 渐变背景装饰效果
+
+### 用户体验
+
+- 未登录用户可以使用对话功能（无历史记录）
+- 登录用户可以保存对话历史
+- 流式输出，实时显示 AI 回复
+- 支持 Enter 发送，Shift+Enter 换行
 
 ## 📚 开发文档
 
@@ -176,7 +225,7 @@ npm run dev
 
 - [架构设计方案](docs/TripMind多智能体架构设计方案.md) - 详细的系统架构设计
 - [开发任务清单](docs/TODO.md) - 分阶段的开发任务
-- [需求分析文档](docs/AI旅游规划多智能体.md) - 项目需求和功能规划
+- [API 文档说明](docs/API文档说明.md) - API 接口文档
 
 ### 开发指南
 
@@ -233,52 +282,36 @@ public class TripPlanController {
     public AgentResult createPlan(@RequestBody TripRequest request) {
         // 实现逻辑
     }
+    
+    @PostMapping("/plan/stream")
+    public SseEmitter createPlanStream(@RequestBody TripRequest request) {
+        // SSE 流式输出
+    }
 }
 ```
 
-## 📋 开发进度
+#### 4. 前端组件开发
 
-### 第一阶段：核心框架 ✅ 已完成
+创建 React 组件：
 
-- [x] BaseAgent 实现（生产级：并发安全、流式输出、拦截器机制）
-- [x] ReActAgent 实现（思考-行动循环）
-- [x] ToolCallAgent 实现（完整工具调用逻辑）
-- [x] 拦截器机制（日志、监控、审计）
-- [x] 核心模型类（Config、Context、Request、Result、Capability等）
+```tsx
+"use client";
 
-### 第二阶段：具体智能体 ✅ 已完成
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
 
-- [x] TripMindOrchestrator（主管智能体 - 任务分解、并行调度、结果汇总）
-- [x] ResearchAgent（调研智能体 - 景点、美食、交通）
-- [x] BudgetAgent（预算智能体 - 费用计算、预算分配）
-- [x] WeatherAgent（天气智能体 - 天气查询、穿衣建议）
-- [x] ItineraryAgent（行程智能体 - 行程优化、RAG增强）
-
-### 第三阶段：工具调用层与基础设施 ✅ 已完成
-
-- [x] AgentRegistry（智能体注册中心 - 自动注册、能力匹配）
-- [x] MessageBus（消息总线 - 发布订阅、请求响应）
-- [x] InMemoryMessageBus（内存实现）
-- [x] TripMindConfig（配置管理）
-
-### 第四阶段：API 与前端 ✅ 已完成
-
-- [x] TripPlanController（REST API）
-  - [x] POST /api/trip/plan（同步创建规划）
-  - [x] POST /api/trip/plan/stream（流式创建规划 - SSE）
-  - [x] GET /api/trip/plan/{id}（查询规划 - 待实现）
-  - [x] GET /api/trip/plan/{id}/pdf（下载PDF - 待实现）
-- [x] Knife4j API 文档集成
-- [x] 集成测试
-
-### 第五阶段：优化与扩展 📅 待开发
-
-- [ ] 缓存优化（Caffeine）
-- [ ] 监控指标（Prometheus）
-- [ ] 性能优化
-- [ ] PDF 生成功能完善
-- [ ] 持久化存储
-- [ ] 更多智能体（酒店、机票、地图等）
+export function MyComponent() {
+  const [state, setState] = useState("");
+  
+  return (
+    <div>
+      <Button onClick={() => setState("clicked")}>
+        Click me
+      </Button>
+    </div>
+  );
+}
+```
 
 ## 🤝 贡献指南
 
@@ -296,15 +329,17 @@ public class TripPlanController {
 
 ## 🔗 相关链接
 
-- [GitHub 仓库](https://github.com/liyupi/tripmind-agent)
+- [GitHub 仓库](https://github.com/Gray878/tripmind-agent)
 - [问题反馈](https://github.com/liyupi/tripmind-agent/issues)
 - [Spring AI 文档](https://docs.spring.io/spring-ai/reference/)
+- [Next.js 文档](https://nextjs.org/docs)
+- [shadcn/ui 文档](https://ui.shadcn.com/)
 
 ## 📧 联系方式
 
 如有问题或建议，欢迎通过以下方式联系：
 
-- 提交 Issue：https://github.com/liyupi/tripmind-agent/issues
+- 提交 Issue：https://github.com/Gray878/tripmind-agent/issues
 - 邮件联系：[待补充]
 
 ---
