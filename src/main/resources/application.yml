@@ -14,7 +14,7 @@ spring:
       on-client-errors: false
     openai:
       # OpenAI 兼容 API 配置（支持所有兼容 OpenAI 格式的模型）
-      api-key: sk-5048bc60a13f4fed81bb0dfe1c31904c
+      api-key: sk-xxx
       # 注意：Spring AI 会拼接 completions-path，base-url 建议不要再带 /v1
       base-url: https://api.deepseek.com
       completions-path: /v1/chat/completions

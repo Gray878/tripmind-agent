@@ -39,3 +39,4 @@ build/
 
 ### other
 /docs
+src/main/resources/application-local.yml
