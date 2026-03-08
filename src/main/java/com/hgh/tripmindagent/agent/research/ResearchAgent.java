@@ -3,12 +3,9 @@ package com.hgh.tripmindagent.agent.research;
 import com.hgh.tripmindagent.agent.ToolCallAgent;
 import com.hgh.tripmindagent.agent.base.AgentCapability;
 import com.hgh.tripmindagent.agent.base.AgentConfig;
-import com.hgh.tripmindagent.tools.WebScrapingTool;
-import com.hgh.tripmindagent.tools.WebSearchTool;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
@@ -30,15 +27,14 @@ import java.util.List;
 public class ResearchAgent extends ToolCallAgent {
     
     public ResearchAgent(
-        @Qualifier("webSearchTool") WebSearchTool webSearchTool,
-        @Qualifier("webScrapingTool") WebScrapingTool webScrapingTool,
+        @Qualifier("researchAgentTools") Object[] researchAgentTools,
         @Qualifier("openaiChatModel") ChatModel chatModel,
         com.hgh.tripmindagent.config.AgentConfigProperties configProperties) {
         
         super("research",
               buildConfig(configProperties),
               ChatClient.builder(chatModel).build(),
-              new Object[]{webSearchTool, webScrapingTool});
+              researchAgentTools);
     }
     
     /**

@@ -59,15 +59,18 @@ spring:
       base-url: http://localhost:11434
       chat:
         model: gemma3:1b
-# 临时注释掉，便于开发调试和部署（实际需要启动 MCP 服务）
-#    mcp:
-#      client:
-#        sse:
-#          connections:
-#            server1:
-#              url: http://localhost:8127
-#        stdio:
-#          servers-configuration: classpath:mcp-servers.json
+    mcp:
+      client:
+        # Keep disabled by default to avoid startup failures in environments
+        # without local MCP server dependencies (Node.js / npx / browser, etc).
+        enabled: ${SPRING_AI_MCP_CLIENT_ENABLED:false}
+        initialized: ${SPRING_AI_MCP_CLIENT_INITIALIZED:false}
+        type: sync
+        request-timeout: 45s
+        toolcallback:
+          enabled: true
+        stdio:
+          servers-configuration: classpath:mcp-servers.json
 # 临时注释掉，便于开发调试和部署（实际需要启动 PgVector 数据库）
 #    vectorstore:
 #      pgvector:
@@ -206,7 +209,7 @@ knife4j:
 #   - Bing Search API (每月 1000 次免费)
 #   - 或暂时禁用联网搜索功能（智能体会使用 LLM 内置知识）
 search-api:
-  api-key: Xofv7r3BMYgjHAMaHB8qPZgU  # 支持环境变量
+  api-key: ${SEARCH_API_KEY:}
 # 修改日志级别，查看 Spring AI 更多调用细节
 logging:
   level:

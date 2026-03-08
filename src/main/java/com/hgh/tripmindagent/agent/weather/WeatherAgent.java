@@ -3,11 +3,9 @@ package com.hgh.tripmindagent.agent.weather;
 import com.hgh.tripmindagent.agent.ToolCallAgent;
 import com.hgh.tripmindagent.agent.base.AgentCapability;
 import com.hgh.tripmindagent.agent.base.AgentConfig;
-import com.hgh.tripmindagent.tools.WebSearchTool;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
@@ -23,14 +21,14 @@ import java.util.List;
 public class WeatherAgent extends ToolCallAgent {
     
     public WeatherAgent(
-        @Qualifier("webSearchTool") WebSearchTool webSearchTool,
+        @Qualifier("weatherAgentTools") Object[] weatherAgentTools,
         @Qualifier("openaiChatModel") ChatModel chatModel,
         com.hgh.tripmindagent.config.AgentConfigProperties configProperties) {
         
         super("weather",
               buildConfig(configProperties),
               ChatClient.builder(chatModel).build(),
-              new Object[]{webSearchTool});
+              weatherAgentTools);
     }
     
     /**

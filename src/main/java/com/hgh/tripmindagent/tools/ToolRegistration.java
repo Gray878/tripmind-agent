@@ -1,80 +1,99 @@
 package com.hgh.tripmindagent.tools;
 
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 /**
- * 集中的工具注册类
- * 
- * 注意：工具类使用 @Tool 注解标记方法，Spring AI 会自动将其转换为 ToolCallback
+ * Central tool registration.
+ *
+ * Local @Tool classes are registered as beans and MCP tools are merged in at runtime.
  */
+@Slf4j
 @Configuration
 public class ToolRegistration {
 
-    @Value("${search-api.api-key}")
+    @Value("${search-api.api-key:}")
     private String searchApiKey;
 
-    /**
-     * 文件操作工具
-     */
     @Bean
     public FileOperationTool fileOperationTool() {
         return new FileOperationTool();
     }
 
-    /**
-     * 网络搜索工具
-     */
     @Bean
     public WebSearchTool webSearchTool() {
         return new WebSearchTool(searchApiKey);
     }
 
-    /**
-     * 网页抓取工具
-     */
     @Bean
     public WebScrapingTool webScrapingTool() {
         return new WebScrapingTool();
     }
 
-    /**
-     * 资源下载工具
-     */
     @Bean
     public ResourceDownloadTool resourceDownloadTool() {
         return new ResourceDownloadTool();
     }
 
-    /**
-     * 终端操作工具
-     */
     @Bean
     public TerminalOperationTool terminalOperationTool() {
         return new TerminalOperationTool();
     }
 
-    /**
-     * PDF 生成工具
-     */
     @Bean
     public PDFGenerationTool pdfGenerationTool() {
         return new PDFGenerationTool();
     }
 
-    /**
-     * 终止工具
-     */
     @Bean
     public TerminateTool terminateTool() {
         return new TerminateTool();
     }
-    
+
     /**
-     * 所有工具的数组（避免集合注入时出现 List 嵌套）
+     * Collect MCP callback tools exposed by Spring AI MCP client auto-configuration.
      */
-    @Bean
+    @Bean("aggregatedMcpToolCallbacks")
+    public ToolCallback[] aggregatedMcpToolCallbacks(ObjectProvider<ToolCallbackProvider> mcpToolCallbackProviders) {
+        Map<String, ToolCallback> callbackMap = new LinkedHashMap<>();
+
+        mcpToolCallbackProviders.orderedStream().forEach(provider -> {
+            ToolCallback[] callbacks = provider.getToolCallbacks();
+            if (callbacks == null) {
+                return;
+            }
+            for (ToolCallback callback : callbacks) {
+                if (callback == null || callback.getToolDefinition() == null) {
+                    continue;
+                }
+                callbackMap.putIfAbsent(callback.getToolDefinition().name(), callback);
+            }
+        });
+
+        if (callbackMap.isEmpty()) {
+            log.info("No MCP tool callbacks loaded. Set SPRING_AI_MCP_CLIENT_ENABLED=true to enable MCP tools.");
+        } else {
+            log.info("Loaded {} MCP tool callbacks: {}", callbackMap.size(), callbackMap.keySet());
+        }
+
+        return callbackMap.values().toArray(new ToolCallback[0]);
+    }
+
+    /**
+     * Tools used by orchestrator.
+     */
+    @Bean("allAgentTools")
     public Object[] allAgentTools(
             FileOperationTool fileOperationTool,
             WebSearchTool webSearchTool,
@@ -82,15 +101,67 @@ public class ToolRegistration {
             ResourceDownloadTool resourceDownloadTool,
             TerminalOperationTool terminalOperationTool,
             PDFGenerationTool pdfGenerationTool,
-            TerminateTool terminateTool) {
-        return new Object[] {
-                fileOperationTool,
-                webSearchTool,
-                webScrapingTool,
-                resourceDownloadTool,
-                terminalOperationTool,
-                pdfGenerationTool,
-                terminateTool
-        };
+            TerminateTool terminateTool,
+            @Qualifier("aggregatedMcpToolCallbacks") ToolCallback[] mcpToolCallbacks) {
+        ArrayList<Object> localTools = new ArrayList<>();
+        localTools.add(fileOperationTool);
+        if (hasSearchApiKey()) {
+            localTools.add(webSearchTool);
+        } else {
+            log.warn("SEARCH_API_KEY is empty, skip registering webSearchTool for allAgentTools.");
+        }
+        localTools.add(webScrapingTool);
+        localTools.add(resourceDownloadTool);
+        localTools.add(terminalOperationTool);
+        localTools.add(pdfGenerationTool);
+        localTools.add(terminateTool);
+
+        return mergeTools(localTools.toArray(new Object[0]), mcpToolCallbacks);
+    }
+
+    /**
+     * Tools used by research agent.
+     */
+    @Bean("researchAgentTools")
+    public Object[] researchAgentTools(
+            WebSearchTool webSearchTool,
+            WebScrapingTool webScrapingTool,
+            @Qualifier("aggregatedMcpToolCallbacks") ToolCallback[] mcpToolCallbacks) {
+        ArrayList<Object> localTools = new ArrayList<>();
+        if (hasSearchApiKey()) {
+            localTools.add(webSearchTool);
+        } else {
+            log.warn("SEARCH_API_KEY is empty, skip registering webSearchTool for researchAgentTools.");
+        }
+        localTools.add(webScrapingTool);
+        return mergeTools(localTools.toArray(new Object[0]), mcpToolCallbacks);
+    }
+
+    /**
+     * Tools used by weather agent.
+     */
+    @Bean("weatherAgentTools")
+    public Object[] weatherAgentTools(
+            WebSearchTool webSearchTool,
+            @Qualifier("aggregatedMcpToolCallbacks") ToolCallback[] mcpToolCallbacks) {
+        ArrayList<Object> localTools = new ArrayList<>();
+        if (hasSearchApiKey()) {
+            localTools.add(webSearchTool);
+        } else {
+            log.warn("SEARCH_API_KEY is empty, skip registering webSearchTool for weatherAgentTools.");
+        }
+        return mergeTools(localTools.toArray(new Object[0]), mcpToolCallbacks);
+    }
+
+    private Object[] mergeTools(Object[] localTools, ToolCallback[] mcpToolCallbacks) {
+        ArrayList<Object> merged = new ArrayList<>(Arrays.asList(localTools));
+        if (mcpToolCallbacks != null && mcpToolCallbacks.length > 0) {
+            merged.addAll(Arrays.asList(mcpToolCallbacks));
+        }
+        return merged.toArray(new Object[0]);
+    }
+
+    private boolean hasSearchApiKey() {
+        return searchApiKey != null && !searchApiKey.isBlank();
     }
 }

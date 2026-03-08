@@ -58,11 +58,11 @@ public class ToolCallAgent extends ReActAgent {
         }
         if (tools.length == 1) {
             Object first = tools[0];
-            if (first instanceof List<?> list) {
-                return list.toArray();
+            if (first instanceof List<?>) {
+                return ((List<?>) first).toArray();
             }
-            if (first instanceof Object[] nestedArray) {
-                return nestedArray;
+            if (first instanceof Object[]) {
+                return (Object[]) first;
             }
         }
         return tools;
@@ -402,9 +402,10 @@ public class ToolCallAgent extends ReActAgent {
             return List.of();
         }
         Object value = thinkResult.getMetadata().get("toolCalls");
-        if (!(value instanceof List<?> list)) {
+        if (!(value instanceof List<?>)) {
             return List.of();
         }
+        List<?> list = (List<?>) value;
 
         List<AssistantMessage.ToolCall> result = new ArrayList<>();
         for (Object item : list) {
