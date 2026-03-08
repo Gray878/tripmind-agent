@@ -44,7 +44,7 @@ class TripMindOrchestratorTest {
     @BeforeEach
     void setUp() {
         AgentConfigProperties configProperties = new AgentConfigProperties();
-        orchestrator = new TripMindOrchestrator(List.of(), chatModel, configProperties);
+        orchestrator = new TripMindOrchestrator(new Object[0], chatModel, configProperties);
         orchestrator.setAgentLocator(agentLocator);
     }
 

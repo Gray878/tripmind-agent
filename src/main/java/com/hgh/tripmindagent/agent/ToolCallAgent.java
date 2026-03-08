@@ -1,5 +1,8 @@
 package com.hgh.tripmindagent.agent;
 
+import cn.hutool.json.JSONArray;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import cn.hutool.core.collection.CollUtil;
 import com.hgh.tripmindagent.agent.base.ActResult;
 import com.hgh.tripmindagent.agent.base.AgentCapability;
@@ -20,12 +23,18 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.model.tool.ToolExecutionResult;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.ToolCallbackProvider;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Agent with explicit tool-call lifecycle control.
@@ -36,16 +45,22 @@ public class ToolCallAgent extends ReActAgent {
 
     private static final int MAX_SAME_TOOL_CALL_ROUNDS = 3;
     private static final int MAX_HISTORY_MESSAGES = 12;
+    private static final int MAX_OBSERVATION_PREVIEW_LENGTH = 1200;
+    private static final int MAX_PLAYWRIGHT_SUMMARY_LENGTH = 6000;
+    private static final int MAX_PLAYWRIGHT_LINKS = 20;
     private static final String DEFAULT_NEXT_STEP_PROMPT =
             "Please provide the final answer based on tool results. Call tools again only if key info is still missing.";
 
-    private final Object[] availableTools;
+    private final Object[] localTools;
+    private final ToolCallback[] callbackTools;
     private final ToolCallingManager toolCallingManager;
     private final ChatOptions chatOptions;
 
     public ToolCallAgent(String agentId, AgentConfig config, ChatClient chatClient, Object[] tools) {
         super(agentId, config, chatClient);
-        this.availableTools = normalizeTools(tools);
+        Object[] normalizedTools = normalizeTools(tools);
+        this.localTools = extractLocalTools(normalizedTools);
+        this.callbackTools = extractCallbackTools(normalizedTools);
         this.toolCallingManager = ToolCallingManager.builder().build();
         this.chatOptions = ToolCallingChatOptions.builder()
                 .internalToolExecutionEnabled(false)
@@ -66,6 +81,43 @@ public class ToolCallAgent extends ReActAgent {
             }
         }
         return tools;
+    }
+
+    private Object[] extractLocalTools(Object[] tools) {
+        List<Object> locals = new ArrayList<>();
+        if (tools == null) {
+            return new Object[0];
+        }
+        for (Object tool : tools) {
+            if (tool == null || tool instanceof ToolCallback || tool instanceof ToolCallbackProvider) {
+                continue;
+            }
+            locals.add(tool);
+        }
+        return locals.toArray(new Object[0]);
+    }
+
+    private ToolCallback[] extractCallbackTools(Object[] tools) {
+        List<ToolCallback> callbacks = new ArrayList<>();
+        if (tools == null) {
+            return new ToolCallback[0];
+        }
+        for (Object tool : tools) {
+            if (tool == null) {
+                continue;
+            }
+            if (tool instanceof ToolCallback) {
+                callbacks.add((ToolCallback) tool);
+                continue;
+            }
+            if (tool instanceof ToolCallbackProvider) {
+                ToolCallback[] providerCallbacks = ((ToolCallbackProvider) tool).getToolCallbacks();
+                if (providerCallbacks != null && providerCallbacks.length > 0) {
+                    callbacks.addAll(List.of(providerCallbacks));
+                }
+            }
+        }
+        return callbacks.toArray(new ToolCallback[0]);
     }
 
     @Override
@@ -106,11 +158,14 @@ public class ToolCallAgent extends ReActAgent {
             }
 
             Prompt prompt = new Prompt(messages, this.chatOptions);
-            ChatResponse response = getChatClient()
-                    .prompt(prompt)
-                    .tools(availableTools)
-                    .call()
-                    .chatResponse();
+            ChatClient.ChatClientRequestSpec requestSpec = getChatClient().prompt(prompt);
+            if (localTools.length > 0) {
+                requestSpec = requestSpec.tools(localTools);
+            }
+            if (callbackTools.length > 0) {
+                requestSpec = requestSpec.toolCallbacks(callbackTools);
+            }
+            ChatResponse response = requestSpec.call().chatResponse();
 
             AssistantMessage message = response.getResult().getOutput();
             List<AssistantMessage.ToolCall> toolCalls =
@@ -149,7 +204,7 @@ public class ToolCallAgent extends ReActAgent {
             return ThinkResult.builder()
                     .reasoning("Think failed: " + e.getMessage())
                     .nextAction("terminate")
-                    .finished(true)
+                    .finished(false)
                     .metadata(Map.of("toolCalls", List.of()))
                     .build();
         }
@@ -217,7 +272,7 @@ public class ToolCallAgent extends ReActAgent {
             for (ToolResponseMessage.ToolResponse response : toolResponseMessage.getResponses()) {
                 actionLog.append("tool=").append(response.name()).append("\n");
                 observationLog.append("tool_result[").append(response.name()).append("]=")
-                        .append(response.responseData()).append("\n");
+                        .append(formatObservationForDisplay(response.name(), response.responseData())).append("\n");
                 if ("doTerminate".equals(response.name())) {
                     terminateToolCalled = true;
                 }
@@ -436,5 +491,206 @@ public class ToolCallAgent extends ReActAgent {
                 .domains(List.of("general"))
                 .tools(List.of())
                 .build();
+    }
+
+    private String formatObservationForDisplay(String toolName, String rawResponse) {
+        if (rawResponse == null || rawResponse.isBlank()) {
+            return "(empty)";
+        }
+
+        String normalized = rawResponse.trim();
+        if (isPlaywrightTool(toolName)) {
+            return summarizePlaywrightResponse(normalized);
+        }
+
+        return truncateForDisplay(normalized);
+    }
+
+    private boolean isPlaywrightTool(String toolName) {
+        return toolName != null && toolName.toLowerCase().contains("playwright");
+    }
+
+    private String summarizePlaywrightResponse(String rawResponse) {
+        String normalizedResponse = normalizePlaywrightResponse(rawResponse);
+        String pageUrl = firstNonBlank(
+                extractSingleLineValue(normalizedResponse, "- Page URL:"),
+                extractSingleLineValue(normalizedResponse, "Page URL:")
+        );
+        String pageTitle = firstNonBlank(
+                extractSingleLineValue(normalizedResponse, "- Page Title:"),
+                extractSingleLineValue(normalizedResponse, "Page Title:")
+        );
+        List<LinkPreview> links = extractFirstLinks(normalizedResponse, pageUrl, MAX_PLAYWRIGHT_LINKS);
+
+        StringBuilder summary = new StringBuilder("Playwright page snapshot captured.");
+        if (pageUrl != null) {
+            summary.append("\nURL: ").append(pageUrl);
+        }
+        if (pageTitle != null) {
+            summary.append("\nTitle: ").append(pageTitle);
+        }
+        if (!links.isEmpty()) {
+            summary.append("\nFound links: ").append(links.size());
+            summary.append("\nLinks:");
+            for (LinkPreview link : links) {
+                summary.append("\n- ").append(link.title()).append(" | ").append(link.url());
+            }
+        }
+
+        summary.append("\n[raw page snapshot omitted]");
+        return truncateForDisplay(summary.toString(), MAX_PLAYWRIGHT_SUMMARY_LENGTH);
+    }
+
+    private String normalizePlaywrightResponse(String rawResponse) {
+        if (rawResponse == null || rawResponse.isBlank()) {
+            return "";
+        }
+
+        String candidate = extractPlaywrightTextField(rawResponse);
+        if (candidate == null || candidate.isBlank()) {
+            candidate = rawResponse;
+        }
+
+        return candidate
+                .replace("\\r\\n", "\n")
+                .replace("\\n", "\n")
+                .replace("\\\"", "\"");
+    }
+
+    private String extractPlaywrightTextField(String rawResponse) {
+        try {
+            Object parsed = JSONUtil.parse(rawResponse);
+            if (parsed instanceof JSONArray jsonArray && !jsonArray.isEmpty()) {
+                Object first = jsonArray.get(0);
+                if (first instanceof JSONObject jsonObject) {
+                    String text = jsonObject.getStr("text");
+                    if (text != null && !text.isBlank()) {
+                        return text;
+                    }
+                }
+            }
+            if (parsed instanceof JSONObject jsonObject) {
+                String text = jsonObject.getStr("text");
+                if (text != null && !text.isBlank()) {
+                    return text;
+                }
+            }
+        } catch (Exception ignored) {
+            // Raw response may be plain text.
+        }
+        return rawResponse;
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null || values.length == 0) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String extractSingleLineValue(String content, String prefix) {
+        if (content == null || prefix == null) {
+            return null;
+        }
+
+        int index = content.indexOf(prefix);
+        if (index < 0) {
+            return null;
+        }
+
+        int start = index + prefix.length();
+        int end = content.indexOf('\n', start);
+        String value = end < 0 ? content.substring(start) : content.substring(start, end);
+        value = value.trim();
+        return value.isEmpty() ? null : value;
+    }
+
+    private List<LinkPreview> extractFirstLinks(String content, String basePageUrl, int maxCount) {
+        List<LinkPreview> links = new ArrayList<>();
+        if (content == null || maxCount <= 0) {
+            return links;
+        }
+
+        Pattern pattern = Pattern.compile("- link \"([^\"]+)\"[^\\n]*\\R\\s*- /url:\\s*(\\S+)");
+        Matcher matcher = pattern.matcher(content);
+        Map<String, String> uniqueLinks = new LinkedHashMap<>();
+
+        while (matcher.find() && uniqueLinks.size() < maxCount) {
+            String linkText = matcher.group(1);
+            String linkUrl = matcher.group(2);
+            if (linkText == null || linkText.isBlank() || linkUrl == null || linkUrl.isBlank()) {
+                continue;
+            }
+
+            String normalizedUrl = resolveNormalizedUrl(linkUrl, basePageUrl);
+            if (normalizedUrl == null) {
+                continue;
+            }
+
+            uniqueLinks.putIfAbsent(normalizedUrl, linkText.trim());
+            if (uniqueLinks.size() >= maxCount) {
+                break;
+            }
+        }
+
+        for (Map.Entry<String, String> entry : uniqueLinks.entrySet()) {
+            links.add(new LinkPreview(entry.getValue(), entry.getKey()));
+        }
+
+        return links;
+    }
+
+    private String resolveNormalizedUrl(String rawUrl, String basePageUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            return null;
+        }
+
+        String candidate = rawUrl.trim();
+        if (candidate.startsWith("#") || candidate.toLowerCase().startsWith("javascript:")) {
+            return null;
+        }
+
+        try {
+            URI uri = new URI(candidate);
+            URI resolved = uri;
+            if (!uri.isAbsolute()) {
+                if (basePageUrl == null || basePageUrl.isBlank()) {
+                    return null;
+                }
+                resolved = new URI(basePageUrl).resolve(uri);
+            }
+
+            String scheme = resolved.getScheme();
+            if (scheme == null || (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme))) {
+                return null;
+            }
+            return resolved.normalize().toString();
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String truncateForDisplay(String value) {
+        return truncateForDisplay(value, MAX_OBSERVATION_PREVIEW_LENGTH);
+    }
+
+    private String truncateForDisplay(String value, int maxLength) {
+        if (value == null) {
+            return "(null)";
+        }
+        if (maxLength <= 0 || value.length() <= maxLength) {
+            return value;
+        }
+        int omitted = value.length() - maxLength;
+        return value.substring(0, maxLength)
+                + "\n... [truncated " + omitted + " chars]";
+    }
+
+    private record LinkPreview(String title, String url) {
     }
 }

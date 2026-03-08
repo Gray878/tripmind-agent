@@ -15,6 +15,7 @@ import {
   ChevronDown,
   Eye,
   EyeOff,
+  Globe2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,8 +30,21 @@ interface Message {
 
 interface ParsedAssistantSections {
   thinking: string;
-  searchLogs: string[];
+  searchLogs: SearchLogItem[];
   finalAnswer: string;
+}
+
+interface SearchLinkItem {
+  title: string;
+  url: string;
+  hostname: string;
+}
+
+interface SearchLogItem {
+  raw: string;
+  summary: string;
+  toolName?: string;
+  links: SearchLinkItem[];
 }
 
 const THINKING_RE = /^(?:[^A-Za-z0-9\u4e00-\u9fff]*)?(?:\u601d\u8003|think)\s*[:\uFF1A]\s*(.*)$/i;
@@ -39,6 +53,12 @@ const OBSERVATION_RE = /^(?:[^A-Za-z0-9\u4e00-\u9fff]*)?(?:\u89c2\u5bdf|observat
 const STEP_RE = /^(?:[^A-Za-z0-9\u4e00-\u9fff]*)?step\s*\d+/i;
 const EVENT_DATA_RE = /^(?:event|data)\s*:/i;
 const TERMINAL_RE = /^(?:\u4efb\u52a1\u7ed3\u675f|\u4efb\u52a1\u5b8c\u6210|task\s*finished|finished|done)$/i;
+const SEARCH_LINK_LINE_RE = /^\s*-\s*(.+?)\s*\|\s*(https?:\/\/\S+)\s*$/i;
+const TOOL_CALL_RE = /^\u8c03\u7528(?:\u641c\u7d22)?\u5de5\u5177[:\uff1a]\s*([a-z0-9_]+)/i;
+const SEARCH_META_LINE_RE = /^(?:URL|Title|Found links|Links)\s*[:\uff1a]/i;
+const PLAYWRIGHT_SUMMARY_RE = /^Playwright page snapshot captured\.?$/i;
+const RAW_SNAPSHOT_OMITTED_RE = /^\[raw page snapshot omitted\]$/i;
+const SEARCH_ARTIFACT_BULLET_RE = /^-\s*.+\|\s*https?:\/\/\S+$/i;
 
 const createMessageId = (role: Message["role"]): string => {
   return `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -75,6 +95,10 @@ const isTraceLine = (line: string): boolean => {
     STEP_RE.test(trimmed) ||
     EVENT_DATA_RE.test(trimmed) ||
     TERMINAL_RE.test(trimmed) ||
+    SEARCH_META_LINE_RE.test(trimmed) ||
+    SEARCH_LINK_LINE_RE.test(trimmed) ||
+    PLAYWRIGHT_SUMMARY_RE.test(trimmed) ||
+    RAW_SNAPSHOT_OMITTED_RE.test(trimmed) ||
     /^tool_result\[[^\]]+\]\s*=\s*/i.test(trimmed) ||
     /\btool\s*=\s*[a-z0-9_]+/i.test(trimmed)
   );
@@ -102,85 +126,258 @@ const parseSearchLogFromObservation = (observationText: string): string | null =
   return cleaned;
 };
 
-const parseAssistantSections = (rawContent: string): ParsedAssistantSections => {
-  const lines = rawContent.replace(/\r/g, "").split("\n");
-  const thinkingLines: string[] = [];
-  const answerLines: string[] = [];
-  const searchLogs: string[] = [];
+const normalizeMatchedUrl = (rawUrl: string): string => {
+  return rawUrl.replace(/[),.;]+$/g, "");
+};
 
-  let mode: "none" | "thinking" | "answer" = "none";
+const parseSearchLinks = (text: string): SearchLinkItem[] => {
+  const links: SearchLinkItem[] = [];
+  const seen = new Set<string>();
+  const lines = text.split("\n");
+
+  let pageUrl: string | null = null;
+  let pageTitle: string | null = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (!pageUrl) {
+      const urlMatch = trimmed.match(/^URL:\s*(https?:\/\/\S+)/i);
+      if (urlMatch) {
+        pageUrl = normalizeMatchedUrl(urlMatch[1]);
+      }
+    }
+
+    if (!pageTitle) {
+      const titleMatch = trimmed.match(/^Title:\s*(.+)$/i);
+      if (titleMatch) {
+        pageTitle = titleMatch[1].trim();
+      }
+    }
+  }
+
+  for (const line of lines) {
+    const linkMatch = line.match(SEARCH_LINK_LINE_RE);
+    if (!linkMatch) continue;
+
+    const title = linkMatch[1].trim();
+    const url = normalizeMatchedUrl(linkMatch[2].trim());
+    if (!title || !url || seen.has(url)) continue;
+
+    try {
+      const hostname = new URL(url).hostname.replace(/^www\./i, "");
+      links.push({ title, url, hostname });
+      seen.add(url);
+    } catch {
+      // Ignore invalid URL.
+    }
+  }
+
+  if (links.length === 0 && pageUrl) {
+    try {
+      const hostname = new URL(pageUrl).hostname.replace(/^www\./i, "");
+      links.push({
+        title: pageTitle || hostname,
+        url: pageUrl,
+        hostname,
+      });
+    } catch {
+      // Ignore invalid URL.
+    }
+  }
+
+  return links;
+};
+
+const buildSearchLogItem = (rawLog: string): SearchLogItem => {
+  const normalized = normalizeBlock(rawLog);
+  const links = parseSearchLinks(normalized);
+  const toolName = normalized.match(TOOL_CALL_RE)?.[1];
+
+  const summaryLines = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !SEARCH_LINK_LINE_RE.test(line))
+    .filter((line) => !/^Links:\s*$/i.test(line));
+
+  return {
+    raw: normalized,
+    summary: normalizeBlock(summaryLines.join("\n")),
+    toolName,
+    links,
+  };
+};
+
+const stripSearchArtifacts = (text: string): string => {
+  if (!text) return "";
+  const lines = text
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+      return !(
+        SEARCH_META_LINE_RE.test(trimmed) ||
+        PLAYWRIGHT_SUMMARY_RE.test(trimmed) ||
+        RAW_SNAPSHOT_OMITTED_RE.test(trimmed) ||
+        SEARCH_ARTIFACT_BULLET_RE.test(trimmed)
+      );
+    });
+
+  return normalizeBlock(lines.join("\n"));
+};
+
+type TraceBlockKind = "think" | "action" | "observe" | "step" | "other";
+
+interface TraceBlock {
+  kind: TraceBlockKind;
+  lines: string[];
+}
+
+const parseAssistantSections = (rawContent: string, options?: { streaming?: boolean }): ParsedAssistantSections => {
+  const streaming = options?.streaming === true;
+  const lines = rawContent.replace(/\r/g, "").split("\n");
+  const blocks: TraceBlock[] = [];
+  let currentBlock: TraceBlock | undefined;
+
+  const pushCurrentBlock = () => {
+    if (!currentBlock) return;
+    const joined = normalizeBlock(currentBlock.lines.join("\n"));
+    if (joined) {
+      blocks.push({ kind: currentBlock.kind, lines: joined.split("\n") });
+    }
+    currentBlock = undefined;
+  };
+
+  const startBlock = (kind: TraceBlockKind, firstLine?: string) => {
+    pushCurrentBlock();
+    currentBlock = { kind, lines: [] };
+    if (firstLine && firstLine.trim()) {
+      currentBlock.lines.push(firstLine);
+    }
+  };
 
   for (const originalLine of lines) {
     const line = originalLine.trimEnd();
     const trimmed = line.trim();
 
     if (!trimmed) {
-      if (mode === "thinking" && thinkingLines[thinkingLines.length - 1] !== "") {
-        thinkingLines.push("");
+      const block = currentBlock;
+      if (block && block.lines[block.lines.length - 1] !== "") {
+        block.lines.push("");
       }
-      if (mode === "answer" && answerLines[answerLines.length - 1] !== "") {
-        answerLines.push("");
-      }
+      continue;
+    }
+
+    if (EVENT_DATA_RE.test(trimmed) || TERMINAL_RE.test(trimmed)) {
       continue;
     }
 
     const thinkingMatch = trimmed.match(THINKING_RE);
     if (thinkingMatch) {
-      mode = "thinking";
-      const firstLine = thinkingMatch[1]?.trim();
-      if (firstLine) thinkingLines.push(firstLine);
+      startBlock("think", thinkingMatch[1]?.trim());
       continue;
     }
 
     const actionMatch = trimmed.match(ACTION_RE);
     if (actionMatch) {
-      mode = "none";
       const actionLog = parseSearchLogFromAction(actionMatch[1] || "");
-      if (actionLog) searchLogs.push(actionLog);
+      startBlock("action", actionLog || trimmed);
       continue;
     }
 
     const observationMatch = trimmed.match(OBSERVATION_RE);
     if (observationMatch) {
-      mode = "none";
       const observationLog = parseSearchLogFromObservation(observationMatch[1] || "");
-      if (observationLog) searchLogs.push(observationLog);
+      startBlock("observe", observationLog || trimmed);
       continue;
     }
 
     if (STEP_RE.test(trimmed)) {
-      searchLogs.push(trimmed);
-      mode = "none";
+      startBlock("step", trimmed);
       continue;
     }
 
-    if (EVENT_DATA_RE.test(trimmed) || TERMINAL_RE.test(trimmed)) {
-      mode = "none";
+    if (!currentBlock) {
+      startBlock("other", line);
       continue;
     }
 
-    if (mode === "thinking") {
-      if (looksLikeAnswerStart(trimmed)) {
-        mode = "answer";
-        answerLines.push(line);
-      } else {
-        thinkingLines.push(line);
+    currentBlock.lines.push(line);
+  }
+  pushCurrentBlock();
+
+  const thinkIndexes = blocks
+    .map((block, index) => ({ block, index }))
+    .filter((entry) => entry.block.kind === "think")
+    .map((entry) => entry.index);
+
+  const hasToolTrace = blocks.some(
+    (block) => block.kind === "action" || block.kind === "observe" || block.kind === "step",
+  );
+
+  let finalThinkIndex = -1;
+  if (!streaming && hasToolTrace) {
+    for (const index of thinkIndexes) {
+      const hasLaterToolTrace = blocks
+        .slice(index + 1)
+        .some((block) => block.kind === "action" || block.kind === "observe");
+      if (!hasLaterToolTrace) {
+        finalThinkIndex = index;
       }
-      continue;
     }
-
-    mode = "answer";
-    answerLines.push(line);
+  } else if (!streaming && thinkIndexes.length > 0) {
+    finalThinkIndex = thinkIndexes[thinkIndexes.length - 1];
   }
 
-  const finalAnswer = normalizeBlock(answerLines.join("\n"));
-  const fallbackAnswer = normalizeBlock(lines.filter((line) => !isTraceLine(line)).join("\n"));
+  const thinkingLines: string[] = [];
+  const searchLogs: string[] = [];
+  const answerLines: string[] = [];
 
-  const dedupSearchLogs: string[] = [];
+  blocks.forEach((block, index) => {
+    const text = normalizeBlock(block.lines.join("\n"));
+    if (!text) return;
+
+    if (block.kind === "think") {
+      if (!hasToolTrace) {
+        thinkingLines.push(text);
+        if (index === finalThinkIndex) {
+          answerLines.push(text);
+        }
+      } else if (index === finalThinkIndex) {
+        answerLines.push(text);
+      } else {
+        thinkingLines.push(text);
+      }
+      return;
+    }
+
+    if (block.kind === "action" || block.kind === "observe" || block.kind === "step") {
+      searchLogs.push(text);
+      return;
+    }
+
+    if (block.kind === "other") {
+      if (finalThinkIndex >= 0 && index > finalThinkIndex) {
+        answerLines.push(text);
+      }
+    }
+  });
+
+  const finalAnswer = stripSearchArtifacts(normalizeBlock(answerLines.join("\n")));
+  const fallbackAnswer = stripSearchArtifacts(
+    normalizeBlock(lines.filter((line) => !isTraceLine(line)).join("\n")),
+  );
+
+  const dedupSearchLogs: SearchLogItem[] = [];
+  let previousRaw = "";
   for (const log of searchLogs) {
     if (!log) continue;
-    if (dedupSearchLogs[dedupSearchLogs.length - 1] === log) continue;
-    dedupSearchLogs.push(log);
+    const item = buildSearchLogItem(log);
+    if (!item.raw) continue;
+    if (previousRaw === item.raw) continue;
+    dedupSearchLogs.push(item);
+    previousRaw = item.raw;
   }
 
   return {
@@ -243,7 +440,7 @@ const AssistantDocument = ({
   showSearch: boolean;
   finalOnly: boolean;
 }) => {
-  const sections = parseAssistantSections(content);
+  const sections = parseAssistantSections(content, { streaming: isStreaming });
   const hasThinking = Boolean(sections.thinking);
   const hasSearch = sections.searchLogs.length > 0;
   const hasFinal = Boolean(sections.finalAnswer);
@@ -303,8 +500,53 @@ const AssistantDocument = ({
               <div className="mt-2">
                 <ul className="space-y-2 text-sm text-foreground">
                   {sections.searchLogs.map((log, index) => (
-                    <li key={`${index}-${log}`} className="rounded-lg bg-background/70 px-3 py-2">
-                      {log}
+                    <li key={`${index}-${log.raw}`} className="rounded-lg bg-background/70 px-3 py-2">
+                      {log.toolName && (
+                        <div className="mb-2 inline-flex items-center gap-2 rounded-full border bg-muted/40 px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                          <Search className="h-3.5 w-3.5" />
+                          <span>{`\u8c03\u7528\u5de5\u5177 ${log.toolName}`}</span>
+                        </div>
+                      )}
+
+                      {log.summary && log.links.length === 0 && (
+                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{log.summary}</p>
+                      )}
+
+                      {log.links.length > 0 && (
+                        <div className="mt-2">
+                          <p className="mb-2 text-xs text-muted-foreground">{`\u627e\u5230 ${log.links.length} \u4e2a\u7ed3\u679c`}</p>
+                          <div className="flex flex-wrap gap-2">
+                          {log.links.map((link) => {
+                            const faviconUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(link.hostname)}&sz=64`;
+                            return (
+                              <a
+                                key={`${link.url}-${link.title}`}
+                                href={link.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="group inline-flex max-w-full items-center gap-2 rounded-full border bg-muted/60 px-2.5 py-1 text-sm transition-colors hover:bg-muted"
+                              >
+                                <div className="relative flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-background">
+                                  <Globe2 className="h-3 w-3 text-muted-foreground" />
+                                  <img
+                                    src={faviconUrl}
+                                    alt=""
+                                    className="absolute inset-0 h-5 w-5 rounded-full"
+                                    loading="lazy"
+                                    referrerPolicy="no-referrer"
+                                    onError={(event) => {
+                                      event.currentTarget.style.display = "none";
+                                    }}
+                                  />
+                                </div>
+
+                                <span className="max-w-[420px] truncate text-sm text-foreground">{link.title}</span>
+                              </a>
+                            );
+                          })}
+                          </div>
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -460,7 +702,9 @@ export default function ChatPage() {
   const hasAssistantMessage = messages.some((msg) => msg.role === "assistant");
   const hasStructuredAssistantContent = messages.some((msg) => {
     if (msg.role !== "assistant") return false;
-    const sections = parseAssistantSections(msg.content);
+    const sections = parseAssistantSections(msg.content, {
+      streaming: isLoading && msg.id === lastMessageId,
+    });
     return Boolean(sections.thinking || sections.searchLogs.length || sections.finalAnswer);
   });
 
